@@ -1,0 +1,31 @@
+[tool.poetry]
+name = "koerce"
+version = "0.0.1"
+description = "Python Pattern Matching"
+authors = ["Krisztian Szucs <szucs.krisztian@gmail.com>"]
+license = "Apache-2.0"
+readme = "README.md"
+
+# Only include cythonized files in final build
+include = ["koerce/**/*.so"]
+exclude = ["koerce/**/*.py"]
+
+[tool.poetry.dependencies]
+python = ">=3.8"
+
+
+[tool.poetry.dev-dependencies]
+
+
+[tool.poetry.group.dev.dependencies]
+cython = "^3.0.10"
+pytest = "^8.3.1"
+pytest-benchmark = "^4.0.0"
+
+[build-system]
+requires = ["poetry>=1.8", "setuptools", "cython"]
+build-backend = "poetry.core.masonry.api"
+
+[tool.poetry.build]
+script = "build.py"
+generate-setup-file = false
