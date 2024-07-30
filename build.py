@@ -4,12 +4,19 @@ import os
 import shutil
 from pathlib import Path
 
-import Cython.Compiler.Options
-from Cython.Build import cythonize
-from Cython.Distutils import build_ext
 from setuptools import Distribution
 
-Cython.Compiler.Options.cimport_from_pyx = True
+try:
+    from Cython.Build import cythonize
+    from Cython.Distutils import build_ext
+except ImportError:
+    print(
+        "Cython is required to build the Cython modules. "
+        "Please install Cython first by running: pip install Cython"
+    )
+
+# import Cython.Compiler.Options
+# Cython.Compiler.Options.cimport_from_pyx = True
 
 SOURCE_DIR = Path("koerce")
 BUILD_DIR = Path("cython_build")
@@ -36,4 +43,5 @@ cmd.run()
 
 for output in cmd.get_outputs():
     relative_extension = os.path.relpath(output, cmd.build_lib)
+    print(f"Copying {output} to {relative_extension}")
     shutil.copyfile(output, relative_extension)
