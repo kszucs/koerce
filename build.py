@@ -5,15 +5,7 @@ import shutil
 from pathlib import Path
 
 from setuptools import Distribution
-
-try:
-    from Cython.Build import cythonize
-    from Cython.Distutils import build_ext
-except ImportError:
-    print(
-        "Cython is required to build the Cython modules. "
-        "Please install Cython first by running: pip install Cython"
-    )
+from Cython.Build import cythonize
 
 # import Cython.Compiler.Options
 # Cython.Compiler.Options.cimport_from_pyx = True
