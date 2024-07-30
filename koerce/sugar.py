@@ -3,12 +3,16 @@ from __future__ import annotations
 import sys
 from typing import Any
 
-from .patterns import Context, Pattern, pattern
-
-# if_
-# isa
-# eq
-# as_
+from .builders import Deferred, Variable
+from .patterns import (
+    Capture,
+    Context,
+    Eq,
+    If,
+    NoMatch,  # noqa: F401
+    Pattern,
+    pattern,
+)
 
 
 class Namespace:
@@ -39,6 +43,18 @@ class Namespace:
     def __getattr__(self, name: str):
         obj = getattr(self._module, name)
         return self._factory(obj)
+
+
+class Var(Deferred):
+    def __init__(self, name: str):
+        builder = Variable(name)
+        super().__init__(builder)
+
+    def __invert__(self):
+        return Capture(self)
+
+
+var = Var
 
 
 def match(pat: Pattern, value: Any, context: Context = None) -> Any:
@@ -74,3 +90,9 @@ def match(pat: Pattern, value: Any, context: Context = None) -> Any:
     """
     pat = pattern(pat)
     return pat.apply(value, context)
+
+
+if_ = If
+eq = Eq
+_ = var("_")
+

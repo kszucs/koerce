@@ -87,7 +87,7 @@ class Pattern:
                     return _any
             elif isinstance(annot, Enum):
                 # for enums we check the value against the enum values
-                return EqualTo(annot)
+                return EqValue(annot)
             elif isinstance(annot, str):
                 # for strings and forward references we check in a lazy way
                 return LazyInstanceOf(annot)
@@ -319,19 +319,26 @@ class IdenticalTo(Pattern):
         else:
             return NoMatch
 
+@cython.ccall
+def Eq(value) -> Pattern:
+    if isinstance(value, (Deferred, Builder)):
+        return EqDeferred(value)
+    else:
+        return EqValue(value)
+
 
 @cython.final
 @cython.cclass
-class EqualTo(Pattern):
+class EqValue(Pattern):
     value: Any
 
     def __init__(self, value: Any):
         self.value = value
 
     def __repr__(self) -> str:
-        return f"EqualTo({self.value!r})"
+        return f"EqValue({self.value!r})"
 
-    def equals(self, other: EqualTo) -> bool:
+    def equals(self, other: EqValue) -> bool:
         return self.value == other.value
 
     @cython.cfunc
@@ -345,7 +352,7 @@ class EqualTo(Pattern):
 
 @cython.final
 @cython.cclass
-class DeferredEqualTo(Pattern):
+class EqDeferred(Pattern):
     """Pattern that checks a value equals to the given value.
 
     Parameters
@@ -361,11 +368,11 @@ class DeferredEqualTo(Pattern):
         self.value = builder(value)
 
     def __repr__(self) -> str:
-        return f"DeferredEqualTo({self.value!r})"
+        return f"EqDeferred({self.value!r})"
 
     @cython.cfunc
     def match(self, value, ctx):
-        ctx["_"] = value
+        # ctx["_"] = value
         # TODO(kszucs): Builder is not cimported so self.value.build() cannot be
         # used, hence using .apply() instead
         if value == self.value.apply(ctx):
@@ -1487,7 +1494,7 @@ def _maybe_unwrap_capture(obj):
 
 def PatternList(patterns, type=list):
     if patterns == ():
-        return EqualTo(patterns)
+        return EqValue(patterns)
 
     patterns = tuple(map(pattern, patterns))
     for pat in patterns:
@@ -1669,12 +1676,12 @@ def pattern(obj: Any, allow_custom: bool = True) -> Pattern:
         return obj
     elif isinstance(obj, (Deferred, Builder)):
         # return Capture(obj)
-        return DeferredEqualTo(obj)
+        return EqDeferred(obj)
     elif isinstance(obj, Mapping):
-        return EqualTo(obj)
+        return EqValue(obj)
     elif isinstance(obj, Sequence):
         if isinstance(obj, (str, bytes)):
-            return EqualTo(obj)
+            return EqValue(obj)
         else:
             return PatternList(obj, type(obj))
     elif isinstance(obj, type):
@@ -1684,7 +1691,7 @@ def pattern(obj: Any, allow_custom: bool = True) -> Pattern:
     elif callable(obj) and allow_custom:
         return Custom(obj)
     else:
-        return EqualTo(obj)
+        return EqValue(obj)
 
 
 # barhol ahol callback-et lehet hasznalni oda kell egy deferred verzio is

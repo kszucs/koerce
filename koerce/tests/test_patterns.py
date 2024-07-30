@@ -26,7 +26,7 @@ from koerce.patterns import (
     CoercedTo,
     CoercionError,
     DictOf,
-    EqualTo,
+    EqValue,
     GenericCoercedTo,
     GenericInstanceOf,
     GenericInstanceOf1,
@@ -119,7 +119,7 @@ def test_identical_to(value):
     ],
 )
 def test_equal_to(a, b, expected):
-    pattern = EqualTo(a)
+    pattern = EqValue(a)
     if expected:
         assert pattern.apply(b) is b
     else:
@@ -1192,7 +1192,7 @@ def test_pattern_function():
     # ... is treated the same as Any()
     assert pattern(...) == Anything()
     assert pattern(Anything()) == Anything()
-    assert pattern(True) == EqualTo(True)
+    assert pattern(True) == EqValue(True)
 
     # plain types are converted to InstanceOf patterns
     assert pattern(int) == InstanceOf(int)
@@ -1209,11 +1209,11 @@ def test_pattern_function():
 
     # spelled out sequences construct a more advanced pattern sequence
     assert pattern([int, str, 1]) == PatternList(
-        [InstanceOf(int), InstanceOf(str), EqualTo(1)]
+        [InstanceOf(int), InstanceOf(str), EqValue(1)]
     )
 
     # matching deferred to user defined functions
     # assert pattern(f) == Custom(f)
 
     # matching mapping values
-    assert pattern({"a": 1, "b": 2}) == EqualTo({"a": 1, "b": 2})
+    assert pattern({"a": 1, "b": 2}) == EqValue({"a": 1, "b": 2})

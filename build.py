@@ -4,7 +4,7 @@ import os
 import shutil
 from pathlib import Path
 
-from Cython.Build import cythonize, build_ext
+from Cython.Build import build_ext, cythonize
 from setuptools import Distribution
 
 # import Cython.Compiler.Options

@@ -10,7 +10,6 @@ import cython
 Context = dict[str, Any]
 
 
-@cython.final
 @cython.cclass
 class Deferred:
     """The user facing wrapper object providing syntactic sugar for deferreds.
@@ -54,6 +53,9 @@ class Deferred:
 
     def __neg__(self) -> Deferred:
         return Deferred(Unop(operator.neg, self))
+
+    def __pos__(self) -> Deferred:
+        return Deferred(Unop(operator.pos, self))
 
     def __add__(self, other: Any) -> Deferred:
         return Deferred(Binop(operator.add, self, other))
@@ -749,8 +751,3 @@ def builder(obj, allow_custom=False) -> Builder:
     else:
         # the object is used as a constant value
         return Just(obj)
-
-
-@cython.ccall
-def variable(name):
-    return Deferred(Variable(name))
