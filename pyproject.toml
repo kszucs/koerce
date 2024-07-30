@@ -24,7 +24,7 @@ pytest = "^8.3.1"
 pytest-benchmark = "^4.0.0"
 
 [build-system]
-requires = ["poetry>=1.8", "setuptools", "cython"]
+requires = ["poetry>=1.8", "setuptools", "cython>=3"]
 build-backend = "poetry.core.masonry.api"
 
 [tool.poetry.build]
