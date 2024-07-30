@@ -1,8 +1,8 @@
-import sys
+from __future__ import annotations
+
+import itertools
 import typing
-from typing import Any, TypeVar, Optional
-from typing_extensions import get_original_bases
-from itertools import tee
+from typing import Any, TypeVar
 
 get_type_args = typing.get_args
 get_type_origin = typing.get_origin
@@ -117,13 +117,14 @@ def get_type_boundvars(typ: Any) -> dict[TypeVar, tuple[str, type]]:
     params = get_type_params(typ)
 
     result = {}
-    for attr, typ in hints.items():
-        if isinstance(typ, TypeVar) and typ.__name__ in params:
-            if not typ.__covariant__:
+    for attr, hint in hints.items():
+        if isinstance(hint, TypeVar) and hint.__name__ in params:
+            if not hint.__covariant__:
                 raise TypeError(
-                    f"Typevar {typ} is not covariant and currently only covariant typevars are supported"
+                    f"Typevar {hint} is not covariant and currently only "
+                    "covariant typevars are supported"
                 )
-            result[attr] = params.pop(typ.__name__)
+            result[attr] = params.pop(hint.__name__)
 
     if params:
         raise ValueError(
@@ -171,8 +172,8 @@ class RewindableIterator:
         """Rewind the iterator to the last checkpoint."""
         if self._checkpoint is None:
             raise ValueError("No checkpoint to rewind to.")
-        self._iterator, self._checkpoint = tee(self._checkpoint)
+        self._iterator, self._checkpoint = itertools.tee(self._checkpoint)
 
     def checkpoint(self):
         """Create a checkpoint of the current iterator state."""
-        self._iterator, self._checkpoint = tee(self._iterator)
+        self._iterator, self._checkpoint = itertools.tee(self._iterator)

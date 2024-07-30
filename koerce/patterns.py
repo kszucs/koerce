@@ -1,33 +1,30 @@
 from __future__ import annotations
-import cython
+
 import importlib
+from collections.abc import Callable, Mapping, Sequence
 from enum import Enum
 from types import UnionType
 from typing import (
-    Any,
-    TypeVar,
-    ForwardRef,
-    Mapping,
-    Literal,
-    Sequence,
-    Union,
     Annotated,
-    Callable,
+    Any,
+    ForwardRef,
+    Literal,
     Optional,
+    TypeVar,
+    Union,
 )
-from typing_extensions import GenericMeta
-from .utils import (
-    get_type_origin,
-    get_type_boundvars,
-    get_type_args,
-    get_type_params,
-    get_original_bases,
-    RewindableIterator,
-)
-from abc import abstractmethod
 
-# from cython.cimports.builders import Builder, Deferred, builder
-from .builders import Builder, Deferred, builder, Variable
+import cython
+from typing_extensions import GenericMeta, get_original_bases
+
+from .builders import Builder, Deferred, Variable, builder
+from .utils import (
+    RewindableIterator,
+    get_type_args,
+    get_type_boundvars,
+    get_type_origin,
+    get_type_params,
+)
 
 
 class CoercionError(Exception):
@@ -813,6 +810,11 @@ class AllOf(Pattern):
             if value is NoMatch:
                 return NoMatch
         return value
+
+
+def NoneOf(*args) -> Pattern:
+    """Match none of the passed patterns."""
+    return Not(AnyOf(*args))
 
 
 @cython.final
@@ -1642,6 +1644,8 @@ def pattern(obj: Any, allow_custom: bool = True) -> Pattern:
     obj
         The object to create a pattern from. Can be a pattern, a type, a callable,
         a mapping, an iterable or a value.
+    allow_custom
+        Whether to allow custom functions to be used as patterns.
 
     Examples
     --------

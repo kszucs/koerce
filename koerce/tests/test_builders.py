@@ -1,24 +1,28 @@
+from __future__ import annotations
+
+import operator
+
+import pytest
+
 from koerce.builders import (
-    Variable,
-    Just,
+    Attr,
+    Binop,
     Call,
     Call0,
     Call1,
     Call2,
     Call3,
     CallN,
-    Unop,
-    Binop,
+    Custom,
     Deferred,
     Item,
-    Attr,
-    Sequence,
+    Just,
     Mapping,
-    Custom,
+    Sequence,
+    Unop,
+    Variable,
     builder,
 )
-import pytest
-import operator
 
 _ = Deferred(Variable("_"))
 

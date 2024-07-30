@@ -1,8 +1,11 @@
 from __future__ import annotations
-import cython
-from typing import Any, Callable
+
 import collections.abc
 import operator
+from collections.abc import Callable
+from typing import Any
+
+import cython
 
 Context = dict[str, Any]
 

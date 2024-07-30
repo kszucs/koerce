@@ -1,15 +1,14 @@
 from __future__ import annotations
+
+from typing import Dict, Generic, List, Optional, TypeVar
+
 import pytest
 
-from typing import ForwardRef, Generic, Optional, Union, List, Dict
+from koerce.utils import get_type_boundvars, get_type_hints, get_type_params
 
-from typing_extensions import TypeVar
-from koerce.utils import get_type_params, get_type_boundvars, get_type_hints
-
-
-T = TypeVar("T")
-S = TypeVar("S")
-U = TypeVar("U")
+T = TypeVar("T", covariant=True)
+S = TypeVar("S", covariant=True)
+U = TypeVar("U", covariant=True)
 
 
 class My(Generic[T, S, U]):
@@ -82,9 +81,6 @@ class MyList(List[T]): ...
 
 def test_get_type_params() -> None:
     # collecting all type params is done by GenericCoercedTo
-    # assert get_type_params(B[int, bool]) == {"T": int, "S": bool, "U": bytes}
-    # assert get_type_params(C[int]) == {"T": int, "S": str, "U": bytes}
-    # assert get_type_params(D) == {"T": bool, "S": str, "U": bytes}
     assert get_type_params(A[int, float, str]) == {"T": int, "S": float, "U": str}
     assert get_type_params(B[int, bool]) == {"T": int, "S": bool}
     assert get_type_params(C[int]) == {"T": int}
@@ -93,20 +89,19 @@ def test_get_type_params() -> None:
     assert get_type_params(MyList[int]) == {"T": int}
 
 
-# def test_get_type_boundvars() -> None:
-#     expected = {
-#         T: ("t", int),
-#         S: ("s", float),
-#         U: ("u", str),
-#     }
-#     assert get_type_boundvars(A[int, float, str]) == expected
+def test_get_type_boundvars() -> None:
+    expected = {
+        "t": int,
+        "s": float,
+        "u": str,
+    }
+    assert get_type_boundvars(A[int, float, str]) == expected
 
-#     expected = {
-#         T: ("t", int),
-#         S: ("s", bool),
-#         U: ("u", bytes),
-#     }
-#     assert get_type_boundvars(B[int, bool]) == expected
+    expected = {
+        "t": int,
+        "s": bool,
+    }
+    assert get_type_boundvars(B[int, bool]) == expected
 
 
 def test_get_type_boundvars_unable_to_deduce() -> None:

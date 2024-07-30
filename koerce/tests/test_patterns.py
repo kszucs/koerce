@@ -1,57 +1,60 @@
-import pytest
+from __future__ import annotations
+
 import sys
-from koerce.patterns import (
-    NoMatch,
-    Anything,
-    Nothing,
-    IdenticalTo,
-    EqualTo,
-    InstanceOf,
-    LazyInstanceOf,
-    GenericInstanceOf,
-    GenericInstanceOf1,
-    Replace,
-    GenericInstanceOf2,
-    GenericInstanceOfN,
-    Option,
-    ObjectOf,
-    MappingOf,
-    ObjectOfX,
-    Pattern,
-    SomeOf,
-    ListOf,
-    ObjectOfN,
-    PatternList,
-    Not,
-    SequenceOf,
-    AnyOf,
-    If,
-    AllOf,
-    DeferredEqualTo,
-    TypeOf,
-    IsIn,
-    AsType,
-    GenericCoercedTo,
-    pattern,
-    CoercedTo,
-    TupleOf,
-    DictOf,
-    CoercionError,
-    Capture,
-)
-from koerce.builders import Variable, Call, Deferred
 from dataclasses import dataclass
 from typing import (
-    TypeVar,
-    Generic,
-    Any,
-    Literal,
-    Callable,
-    Sequence,
-    Optional,
-    Union,
-    List,
     Annotated,
+    Any,
+    Generic,
+    List,
+    Literal,
+    Optional,
+    Sequence,
+    TypeVar,
+    Union,
+)
+
+import pytest
+
+from koerce.builders import Call, Deferred, Variable
+from koerce.patterns import (
+    AllOf,
+    AnyOf,
+    Anything,
+    AsType,
+    Capture,
+    CoercedTo,
+    CoercionError,
+    DictOf,
+    EqualTo,
+    GenericCoercedTo,
+    GenericInstanceOf,
+    GenericInstanceOf1,
+    GenericInstanceOf2,
+    GenericInstanceOfN,
+    IdenticalTo,
+    If,
+    InstanceOf,
+    IsIn,
+    LazyInstanceOf,
+    ListOf,
+    MappingOf,
+    NoMatch,
+    NoneOf,
+    Not,
+    Nothing,
+    ObjectOf,
+    ObjectOfX,
+    Option,
+    Pattern,
+    PatternList,
+    Replace,
+    SequenceOf,
+    SomeChunksOf,
+    SomeOf,
+    TupleOf,
+    TypeOf,
+    pattern,
 )
 from koerce.sugar import match
 
@@ -66,7 +69,6 @@ class Min(Pattern):
         return f"{self.__class__.__name__}({self.min})"
 
     def apply(self, value, context):
-        print("EEE")
         if value >= self.min:
             return value
         else:
@@ -347,10 +349,6 @@ def test_generic_coerced_to():
         def dtype(self) -> T:
             return self._dtype
 
-        @property
-        def shape(self) -> DataShape:
-            return Scalar()
-
         def __eq__(self, other):
             return (
                 type(self) is type(other)
@@ -476,15 +474,15 @@ def test_capture():
     assert ctx == {"result": 12}
 
 
-# def test_none_of():
-#     def negative(x):
-#         return x < 0
+def test_none_of():
+    def negative(x):
+        return x < 0
 
-#     p = NoneOf(InstanceOf(int), Check(negative))
-#     assert p.apply(1.0, context={}) == 1.0
-#     assert p.apply(-1.0, context={}) is NoMatch
-#     assert p.apply(1, context={}) is NoMatch
-#     assert p.describe() == "anything except an int or a value that satisfies negative()"
+    p = NoneOf(InstanceOf(int), If(negative))
+    assert p.apply(1.0, context={}) == 1.0
+    assert p.apply(-1.0, context={}) is NoMatch
+    assert p.apply(1, context={}) is NoMatch
+    #assert p.describe() == "anything except an int or a value that satisfies negative()"
 
 
 def test_generic_sequence_of():
@@ -732,12 +730,12 @@ def test_matching():
     assert Capture("pi", InstanceOf(float)) == "pi" @ InstanceOf(float)
     assert Capture("pi", InstanceOf(float)) == "pi" @ InstanceOf(float)
 
-    assert match(Capture("pi", InstanceOf(float)), 3.14, ctx := {}) == 3.14  # noqa: RUF018
+    assert match(Capture("pi", InstanceOf(float)), 3.14, ctx := {}) == 3.14
     assert ctx == {"pi": 3.14}
-    assert match("pi" @ InstanceOf(float), 3.14, ctx := {}) == 3.14  # noqa: RUF018
+    assert match("pi" @ InstanceOf(float), 3.14, ctx := {}) == 3.14
     assert ctx == {"pi": 3.14}
 
-    assert match("pi" @ InstanceOf(float), 3.14, ctx := {}) == 3.14  # noqa: RUF018
+    assert match("pi" @ InstanceOf(float), 3.14, ctx := {}) == 3.14
     assert ctx == {"pi": 3.14}
 
     assert match(InstanceOf(int) | InstanceOf(float), 3) == 3
@@ -846,13 +844,13 @@ def test_matching_sequence_with_captures():
 
     v = list(range(1, 9))
     assert match([1, 2, 3, 4, SomeOf(...)], v) == v
-    assert match([1, 2, 3, 4, "rest" @ SomeOf(...)], v, ctx := {}) == v  # noqa: RUF018
+    assert match([1, 2, 3, 4, "rest" @ SomeOf(...)], v, ctx := {}) == v
     assert ctx == {"rest": [5, 6, 7, 8]}
 
     v = list(range(5))
-    assert match([0, 1, x @ SomeOf(...), 4], v, ctx := {}) == v  # noqa: RUF018
+    assert match([0, 1, x @ SomeOf(...), 4], v, ctx := {}) == v
     assert ctx == {"x": [2, 3]}
-    assert match([0, 1, "var" @ SomeOf(...), 4], v, ctx := {}) == v  # noqa: RUF018
+    assert match([0, 1, "var" @ SomeOf(...), 4], v, ctx := {}) == v
     assert ctx == {"var": [2, 3]}
 
     p = [
@@ -863,7 +861,7 @@ def test_matching_sequence_with_captures():
         6,
     ]
     v = [0, 1, 2, 3, 4.0, 5.0, 6]
-    assert match(p, v, ctx := {}) == v  # noqa: RUF018
+    assert match(p, v, ctx := {}) == v
     assert ctx == {"ints": [2, 3], "last_float": 5.0}
 
 
@@ -879,7 +877,7 @@ def test_matching_sequence_remaining():
     # assert match([1, 2, 3, SomeOf(InstanceOf(int) & Between(0, 10))], five) == five
     # assert match([1, 2, 3, SomeOf(InstanceOf(int) & Between(0, 4))], five) is NoMatch
     assert match([1, 2, 3, SomeOf(int, at_least=2)], four) is NoMatch
-    assert match([1, 2, 3, "res" @ SomeOf(int, at_least=2)], five, ctx := {}) == five  # noqa: RUF018
+    assert match([1, 2, 3, "res" @ SomeOf(int, at_least=2)], five, ctx := {}) == five
     assert ctx == {"res": [4, 5]}
 
 
@@ -896,19 +894,17 @@ def test_matching_sequence_complicated():
         "a": [2, 3],
         "b": [5, 6, 7],
     }
-    assert match(pat, range(1, 10), ctx := {}) == list(range(1, 10))  # noqa: RUF018
+    assert match(pat, range(1, 10), ctx := {}) == list(range(1, 10))
     assert ctx == expected
 
     pat = [1, 2, Capture("remaining", SomeOf(...))]
     expected = {"remaining": [3, 4, 5, 6, 7, 8, 9]}
-    assert match(pat, range(1, 10), ctx := {}) == list(range(1, 10))  # noqa: RUF018
+    assert match(pat, range(1, 10), ctx := {}) == list(range(1, 10))
     assert ctx == expected
 
     v = [0, [1, 2, "3"], [1, 2, "4"], 3]
     assert match([0, SomeOf([1, 2, str]), 3], v) == v
 
-
-from koerce.patterns import SomeChunksOf
 
 
 def test_pattern_sequence_with_nested_some_of():
@@ -1209,7 +1205,7 @@ def test_pattern_function():
     assert pattern(Box[MyNegativeInt]) == GenericInstanceOf(Box[MyNegativeInt])
 
     # sequence typehints are converted to the appropriate sequence checkers
-    assert pattern(List[int]) == ListOf(InstanceOf(int))  # noqa: UP006
+    assert pattern(List[int]) == ListOf(InstanceOf(int))
 
     # spelled out sequences construct a more advanced pattern sequence
     assert pattern([int, str, 1]) == PatternList(
