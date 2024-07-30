@@ -26,7 +26,7 @@ jobs:
       - name: Build wheels
         uses: pypa/cibuildwheel@v2.19.2
         env:
-          CIBW_SKIP: cp36-* cp37-* cp38-* cp39-* pp36-* pp37-* pp38-* pp39-*
+          CIBW_SKIP: cp36-* cp37-* cp38-* cp39-* pp*
 
       - uses: actions/upload-artifact@v4
         with:
