@@ -4,8 +4,8 @@ import os
 import shutil
 from pathlib import Path
 
+from Cython.Build import cythonize, build_ext
 from setuptools import Distribution
-from Cython.Build import cythonize
 
 # import Cython.Compiler.Options
 # Cython.Compiler.Options.cimport_from_pyx = True
@@ -35,5 +35,5 @@ cmd.run()
 
 for output in cmd.get_outputs():
     relative_extension = os.path.relpath(output, cmd.build_lib)
-    print(f"Copying {output} to {relative_extension}")
+    print(f"Copying {output} to {relative_extension}")  # noqa: T201
     shutil.copyfile(output, relative_extension)
