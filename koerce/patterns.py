@@ -485,6 +485,7 @@ class LazyInstanceOf(Pattern):
 
 @cython.ccall
 def GenericInstanceOf(typ) -> Pattern:
+    # TODO(kszucs): could be expressed using ObjectOfN..
     nparams: int = len(get_type_params(typ))
     if nparams == 1:
         return GenericInstanceOf1(typ)
@@ -1211,11 +1212,168 @@ class Replace(Pattern):
 
 def ObjectOf(type_, *args, **kwargs) -> Pattern:
     if isinstance(type_, type):
-        return ObjectOfN(type_, *args, **kwargs)
+        if len(type_.__match_args__) < len(args):
+            raise ValueError(
+                "The type to match has fewer `__match_args__` than the number "
+                "of positional arguments in the pattern"
+            )
+        fields = dict(zip(type_.__match_args__, args))
+        fields.update(kwargs)
+        if len(fields) == 1:
+            return ObjectOf1(type_, **fields)
+        elif len(fields) == 2:
+            return ObjectOf2(type_, **fields)
+        elif len(fields) == 3:
+            return ObjectOf3(type_, **fields)
+        else:
+            return ObjectOfN(type_, **fields)
     else:
         return ObjectOfX(type_, *args, **kwargs)
-    # else:
-    #     raise TypeError(f"Expected a type, got {type_!r}")
+
+
+@cython.final
+@cython.cclass
+class ObjectOf1(Pattern):
+    type_: type
+    field1: str
+    pattern1: Pattern
+
+    def __init__(self, type_: type, **kwargs):
+        assert len(kwargs) == 1
+        self.type_ = type_
+        (self.field1, pattern1), = kwargs.items()
+        self.pattern1 = pattern(pattern1)
+
+    def __repr__(self) -> str:
+        return f"ObjectOf1({self.type_!r}, {self.field1!r}={self.pattern1!r})"
+
+    def equals(self, other: ObjectOf1) -> bool:
+        return self.type_ == other.type_ and self.field1 == other.field1 and self.pattern1 == other.pattern1
+
+    @cython.cfunc
+    def match(self, value, ctx: Context):
+        if not isinstance(value, self.type_):
+            return NoMatch
+
+        attr1 = getattr(value, self.field1)
+        result1 = self.pattern1.match(attr1, ctx)
+        if result1 is NoMatch:
+            return NoMatch
+        elif result1 is not attr1:
+            kwargs: dict = {self.field1: result1}
+            return type(value)(**kwargs)
+        else:
+            return value
+
+
+@cython.final
+@cython.cclass
+class ObjectOf2(Pattern):
+    type_: type
+    field1: str
+    pattern1: Pattern
+    field2: str
+    pattern2: Pattern
+
+    def __init__(self, type_: type, **kwargs):
+        assert len(kwargs) == 2
+        self.type_ = type_
+        (self.field1, pattern1), (self.field2, pattern2) = kwargs.items()
+        self.pattern1 = pattern(pattern1)
+        self.pattern2 = pattern(pattern2)
+
+    def __repr__(self) -> str:
+        return f"ObjectOf2({self.type_!r}, {self.field1!r}={self.pattern1!r}, {self.field2!r}={self.pattern2!r})"
+
+    def equals(self, other: ObjectOf2) -> bool:
+        return (
+            self.type_ == other.type_
+            and self.field1 == other.field1
+            and self.pattern1 == other.pattern1
+            and self.field2 == other.field2
+            and self.pattern2 == other.pattern2
+        )
+
+    @cython.cfunc
+    def match(self, value, ctx: Context):
+        if not isinstance(value, self.type_):
+            return NoMatch
+
+        attr1 = getattr(value, self.field1)
+        result1 = self.pattern1.match(attr1, ctx)
+        if result1 is NoMatch:
+            return NoMatch
+
+        attr2 = getattr(value, self.field2)
+        result2 = self.pattern2.match(attr2, ctx)
+        if result2 is NoMatch:
+            return NoMatch
+
+        if result1 is not attr1 or result2 is not attr2:
+            kwargs: dict = {self.field1: result1, self.field2: result2}
+            return type(value)(**kwargs)
+        else:
+            return value
+
+@cython.final
+@cython.cclass
+class ObjectOf3(Pattern):
+    type_: type
+    field1: str
+    field2: str
+    field3: str
+    pattern1: Pattern
+    pattern2: Pattern
+    pattern3: Pattern
+
+    def __init__(self, type_: type, **kwargs):
+        assert len(kwargs) == 3
+        self.type_ = type_
+        (self.field1, pattern1), (self.field2, pattern2), (self.field3, pattern3) = kwargs.items()
+        self.pattern1 = pattern(pattern1)
+        self.pattern2 = pattern(pattern2)
+        self.pattern3 = pattern(pattern3)
+
+    def __repr__(self) -> str:
+        return f"ObjectOf3({self.type_!r}, {self.field1!r}={self.pattern1!r}, {self.field2!r}={self.pattern2!r}, {self.field3!r}={self.pattern3!r})"
+
+    def equals(self, other: ObjectOf3) -> bool:
+        return (
+            self.type_ == other.type_
+            and self.field1 == other.field1
+            and self.pattern1 == other.pattern1
+            and self.field2 == other.field2
+            and self.pattern2 == other.pattern2
+            and self.field3 == other.field3
+            and self.pattern3 == other.pattern3
+        )
+
+    @cython.cfunc
+    def match(self, value, ctx: Context):
+        if not isinstance(value, self.type_):
+            return NoMatch
+
+        attr1 = getattr(value, self.field1)
+        result1 = self.pattern1.match(attr1, ctx)
+        if result1 is NoMatch:
+            return NoMatch
+
+        attr2 = getattr(value, self.field2)
+        result2 = self.pattern2.match(attr2, ctx)
+        if result2 is NoMatch:
+            return NoMatch
+
+        attr3 = getattr(value, self.field3)
+        result3 = self.pattern3.match(attr3, ctx)
+        if result3 is NoMatch:
+            return NoMatch
+
+        if result1 is not attr1 or result2 is not attr2 or result3 is not attr3:
+            kwargs: dict = {self.field1: result1, self.field2: result2, self.field3: result3}
+            return type(value)(**kwargs)
+        else:
+            return value
+
 
 
 @cython.final
@@ -1240,19 +1398,9 @@ class ObjectOfN(Pattern):
     type_: type
     fields: dict[str, Pattern]
 
-    def __init__(self, type_: type, *args, **kwargs):
-        if len(type_.__match_args__) < len(args):
-            raise ValueError(
-                "The type to match has fewer `__match_args__` than the number "
-                "of positional arguments in the pattern"
-            )
+    def __init__(self, type_: type, **kwargs):
         self.type_ = type_
-        self.fields = {}
-        k: str
-        for k, v in zip(type_.__match_args__, args):
-            self.fields[k] = pattern(v)
-        for k, v in kwargs.items():
-            self.fields[k] = pattern(v)
+        self.fields = {k: pattern(v) for k, v in kwargs.items()}
 
     def __repr__(self) -> str:
         return f"ObjectOfN({self.type_!r}, {self.fields!r})"
@@ -1267,18 +1415,13 @@ class ObjectOfN(Pattern):
 
         name: str
         fields: dict[str, Any] = {}
-        changed: cython.bint = False
+        changed: bool = False
         pattern: Pattern
         for name, pattern in self.fields.items():
-            try:
-                attr = getattr(value, name)
-            except AttributeError:
-                return NoMatch
-
+            attr = getattr(value, name)
             result = pattern.match(attr, ctx)
             if result is NoMatch:
                 return NoMatch
-            # elif result != attr:
             elif result is not attr:
                 changed = True
                 fields[name] = result
@@ -1338,7 +1481,6 @@ class ObjectOfX(Pattern):
             result = pattern.match(attr, context)
             if result is NoMatch:
                 return NoMatch
-            # elif result != attr:
             elif result is not attr:
                 changed = True
                 fields[name] = result
@@ -1600,8 +1742,6 @@ class VariadicPatternList(Pattern):
                     following = cython.cast(SomeItemsOf, following).delimiter
                 elif isinstance(following, SomeChunksOf):
                     following = cython.cast(SomeChunksOf, following).delimiter
-                # if isinstance(following, (SomeItemsOf, SomeChunksOf)):
-                #     following = following.delimiter
 
                 matches = []
                 while True:
@@ -1694,4 +1834,3 @@ def pattern(obj: Any, allow_custom: bool = True) -> Pattern:
         return EqValue(obj)
 
 
-# barhol ahol callback-et lehet hasznalni oda kell egy deferred verzio is
