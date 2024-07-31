@@ -3,6 +3,7 @@ from __future__ import annotations
 import importlib
 from collections.abc import Callable, Mapping, Sequence
 from enum import Enum
+from inspect import Parameter, Signature
 from types import UnionType
 from typing import (
     Annotated,
@@ -121,21 +122,21 @@ class Pattern:
             # is used for isinstance checks, the rest are applied in conjunction
             annot, *extras = args
             return AllOf(Pattern.from_typehint(annot), *extras)
-        # elif origin is Callable:
-        #     # the Callable typehint is used to annotate functions, e.g. the
-        #     # following typehint annotates a function that takes two integers
-        #     # and returns a string: Callable[[int, int], str]
-        #     if args:
-        #         # callable with args and return typehints construct a special
-        #         # CallableWith validator
-        #         arg_hints, return_hint = args
-        #         arg_patterns = tuple(map(cls.from_typehint, arg_hints))
-        #         return_pattern = cls.from_typehint(return_hint)
-        #         return CallableWith(arg_patterns, return_pattern)
-        #     else:
-        #         # in case of Callable without args we check for the Callable
-        #         # protocol only
-        #         return InstanceOf(Callable)
+        elif origin is Callable:
+            # the Callable typehint is used to annotate functions, e.g. the
+            # following typehint annotates a function that takes two integers
+            # and returns a string: Callable[[int, int], str]
+            if args:
+                # callable with args and return typehints construct a special
+                # CallableWith validator
+                arg_hints, return_hint = args
+                arg_patterns = list(map(Pattern.from_typehint, arg_hints))
+                return_pattern = Pattern.from_typehint(return_hint)
+                return CallableWith(arg_patterns, return_pattern)
+            else:
+                # in case of Callable without args we check for the Callable
+                # protocol only
+                return InstanceOf(Callable)
         elif issubclass(origin, tuple):
             # construct validators for the tuple elements, but need to treat
             # variadic tuples differently, e.g. tuple[int, ...] is a variadic
@@ -1492,6 +1493,46 @@ class ObjectOfX(Pattern):
         else:
             return value
 
+@cython.final
+@cython.cclass
+class CallableWith(Pattern):
+    args: list[Pattern]
+    return_: Pattern
+
+    def __init__(self, args, return_=_any):
+        self.args = [pattern(arg) for arg in args]
+        self.return_ = pattern(return_)
+
+    @cython.cfunc
+    def match(self, value, ctx):
+        if not callable(value):
+            return NoMatch
+
+        sig = Signature.from_callable(value)
+
+        has_varargs: bool = False
+        positional: list = []
+        required_positional: list = []
+        for p in sig.parameters.values():
+            if p.kind in (Parameter.POSITIONAL_ONLY, Parameter.POSITIONAL_OR_KEYWORD):
+                positional.append(p)
+                if p.default is Parameter.empty:
+                    required_positional.append(p)
+            elif p.kind is Parameter.KEYWORD_ONLY and p.default is Parameter.empty:
+                raise TypeError(
+                    "Callable has mandatory keyword-only arguments which cannot be specified"
+                )
+            elif p.kind is Parameter.VAR_POSITIONAL:
+                has_varargs = True
+
+        if len(required_positional) > len(self.args):
+            # Callable has more positional arguments than expected")
+            return NoMatch
+        elif len(positional) < len(self.args) and not has_varargs:
+            # Callable has less positional arguments than expected")
+            return NoMatch
+        else:
+            return value
 
 @cython.final
 @cython.cclass

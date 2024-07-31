@@ -1,10 +1,12 @@
 from __future__ import annotations
 
+import functools
 import sys
 from dataclasses import dataclass
 from typing import (
     Annotated,
     Any,
+    Callable,
     Generic,
     List,
     Literal,
@@ -22,6 +24,7 @@ from koerce.patterns import (
     AnyOf,
     Anything,
     AsType,
+    CallableWith,
     Capture,
     CoercedTo,
     CoercionError,
@@ -1217,3 +1220,63 @@ def test_pattern_function():
 
     # matching mapping values
     assert pattern({"a": 1, "b": 2}) == EqValue({"a": 1, "b": 2})
+
+
+
+def test_callable_with():
+    def func(a, b):
+        return str(a) + b
+
+    def func_with_args(a, b, *args):
+        return sum((a, b) + args)
+
+    def func_with_kwargs(a, b, c=1, **kwargs):
+        return str(a) + b + str(c)
+
+    def func_with_optional_keyword_only_kwargs(a, *, c=1):
+        return a + c
+
+    def func_with_required_keyword_only_kwargs(*, c):
+        return c
+
+    p = CallableWith([InstanceOf(int), InstanceOf(str)])
+    assert p.apply(10, context={}) is NoMatch
+
+    msg = "Callable has mandatory keyword-only arguments which cannot be specified"
+    with pytest.raises(TypeError, match=msg):
+        p.apply(func_with_required_keyword_only_kwargs, context={})
+
+    # Callable has more positional arguments than expected
+    p = CallableWith([InstanceOf(int)] * 2)
+    assert p.apply(func_with_kwargs, context={}) is func_with_kwargs
+
+    # Callable has less positional arguments than expected
+    p = CallableWith([InstanceOf(int)] * 4)
+    assert p.apply(func_with_kwargs, context={}) is NoMatch
+
+    p = CallableWith([InstanceOf(int)] * 4, InstanceOf(int))
+    wrapped = p.apply(func_with_args, context={})
+    assert wrapped(1, 2, 3, 4) == 10
+
+    p = CallableWith([InstanceOf(int), InstanceOf(str)], InstanceOf(str))
+    wrapped = p.apply(func, context={})
+    assert wrapped(1, "st") == "1st"
+
+    p = CallableWith([InstanceOf(int)])
+    wrapped = p.apply(func_with_optional_keyword_only_kwargs, context={})
+    assert wrapped(1) == 2
+
+
+def test_callable_with_default_arguments():
+    def f(a: int, b: str, c: str):
+        return a + int(b) + int(c)
+
+    def g(a: int, b: str, c: str = "0"):
+        return a + int(b) + int(c)
+
+    h = functools.partial(f, c="0")
+
+    p = Pattern.from_typehint(Callable[[int, str], int])
+    assert p.apply(f) is NoMatch
+    assert p.apply(g) == g
+    assert p.apply(h) == h
