@@ -47,6 +47,10 @@ from koerce.patterns import (
     Not,
     Nothing,
     ObjectOf,
+    ObjectOf1,
+    ObjectOf2,
+    ObjectOf3,
+    ObjectOfN,
     ObjectOfX,
     Option,
     Pattern,
@@ -549,6 +553,20 @@ class Bar:
         return type(self) is type(other) and self.c == other.c and self.d == other.d
 
 
+class Baz:
+    __match_args__ = ("e", "f", "g", "h", "i")
+
+    def __init__(self, e, f, g, h, i):
+        self.e = e
+        self.f = f
+        self.g = g
+        self.h = h
+        self.i = i
+
+    def __eq__(self, other):
+        return type(self) is type(other) and self.e == other.e and self.f == other.f and self.g == other.g and self.h == other.h and self.i == other.i
+
+
 def test_object_pattern():
     p = ObjectOf(Foo, 1, b=2)
     o = Foo(1, 2)
@@ -557,6 +575,47 @@ def test_object_pattern():
 
     p = ObjectOf(Foo, 1, lambda x: x * 2)
     assert p.apply(Foo(1, 2)) == Foo(1, 4)
+
+
+def test_object_of_pattern_unrolling():
+    p = ObjectOf(Foo, 1)
+    assert isinstance(p, ObjectOf1)
+    assert p.apply(Foo(1, 2)) == Foo(1, 2)
+
+    p = ObjectOf(Foo, 1, 2)
+    assert isinstance(p, ObjectOf2)
+    assert p.apply(Foo(1, 2)) == Foo(1, 2)
+
+    p = ObjectOf(Baz, 1, 2, 3)
+    assert isinstance(p, ObjectOf3)
+    assert p.apply(Baz(1, 2, 3, 4, 5)) == Baz(1, 2, 3, 4, 5)
+
+    p = ObjectOf(Baz, 1, 2, 3, 4)
+    assert isinstance(p, ObjectOfN)
+    assert p.apply(Baz(1, 2, 3, 4, 5)) == Baz(1, 2, 3, 4, 5)
+
+
+def test_object_of_partial_replacement():
+    p = ObjectOf(Baz, Replace(1, 11))
+    assert isinstance(p, ObjectOf1)
+    assert p.apply(Baz(1, 2, 3, 4, 5)) == Baz(11, 2, 3, 4, 5)
+
+    p = ObjectOf(Baz, Replace(1, 11), Replace(2, 22))
+    assert isinstance(p, ObjectOf2)
+    assert p.apply(Baz(1, 2, 3, 4, 5)) == Baz(11, 22, 3, 4, 5)
+
+    p = ObjectOf(Baz, Replace(1, 11), Replace(2, 22), Replace(3, 33))
+    assert isinstance(p, ObjectOf3)
+    assert p.apply(Baz(1, 2, 3, 4, 5)) == Baz(11, 22, 33, 4, 5)
+
+    p = ObjectOf(Baz, Replace(1, 11), Replace(2, 22), Replace(3, 33), Replace(4, 44))
+    assert isinstance(p, ObjectOfN)
+    assert p.apply(Baz(1, 2, 3, 4, 5)) == Baz(11, 22, 33, 44, 5)
+
+    p = ObjectOf(Foo | Baz, Replace(1, 11))
+    assert isinstance(p, ObjectOfX)
+    assert p.apply(Foo(1, 2)) == Foo(11, 2)
+    assert p.apply(Baz(1, 2, 3, 4, 5)) == Baz(11, 2, 3, 4, 5)
 
 
 def test_object_pattern_complex_type():

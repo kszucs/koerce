@@ -35,6 +35,7 @@ class CoercionError(Exception):
 Context = dict[str, Any]
 
 
+
 @cython.cclass
 class NoMatch:
     def __init__(self):
@@ -372,7 +373,7 @@ class EqDeferred(Pattern):
         return f"EqDeferred({self.value!r})"
 
     @cython.cfunc
-    def match(self, value, ctx):
+    def match(self, value, ctx: Context):
         # ctx["_"] = value
         # TODO(kszucs): Builder is not cimported so self.value.build() cannot be
         # used, hence using .apply() instead
@@ -740,13 +741,13 @@ class GenericCoercedTo(Pattern):
         return self.origin == other.origin and self.params == other.params
 
     @cython.cfunc
-    def match(self, value, context):
+    def match(self, value, ctx: Context):
         try:
             value = self.origin.__coerce__(value, **self.params)
         except CoercionError:
             return NoMatch
 
-        if self.checker.match(value, context) is NoMatch:
+        if self.checker.match(value, ctx) is NoMatch:
             return NoMatch
 
         return value
@@ -961,7 +962,7 @@ class IsIn(Pattern):
         return self.haystack == other.haystack
 
     @cython.cfunc
-    def match(self, value, context):
+    def match(self, value, ctx: Context):
         if value in self.haystack:
             return value
         else:
@@ -1232,6 +1233,19 @@ def ObjectOf(type_, *args, **kwargs) -> Pattern:
         return ObjectOfX(type_, *args, **kwargs)
 
 
+
+@cython.cfunc
+@cython.inline
+def _reconstruct(value: Any, changed: dict[str, Any]):
+    # use it with caution because it mutates the changed dict
+    name: str
+    args: tuple[str] = value.__match_args__
+    for name in args:
+        if name not in changed:
+            changed[name] = getattr(value, name)
+    return type(value)(**changed)
+
+
 @cython.final
 @cython.cclass
 class ObjectOf1(Pattern):
@@ -1261,8 +1275,8 @@ class ObjectOf1(Pattern):
         if result1 is NoMatch:
             return NoMatch
         elif result1 is not attr1:
-            kwargs: dict = {self.field1: result1}
-            return type(value)(**kwargs)
+            changed: dict = {self.field1: result1}
+            return _reconstruct(value, changed)
         else:
             return value
 
@@ -1311,8 +1325,8 @@ class ObjectOf2(Pattern):
             return NoMatch
 
         if result1 is not attr1 or result2 is not attr2:
-            kwargs: dict = {self.field1: result1, self.field2: result2}
-            return type(value)(**kwargs)
+            changed: dict = {self.field1: result1, self.field2: result2}
+            return _reconstruct(value, changed)
         else:
             return value
 
@@ -1370,8 +1384,8 @@ class ObjectOf3(Pattern):
             return NoMatch
 
         if result1 is not attr1 or result2 is not attr2 or result3 is not attr3:
-            kwargs: dict = {self.field1: result1, self.field2: result2, self.field3: result3}
-            return type(value)(**kwargs)
+            changed: dict = {self.field1: result1, self.field2: result2, self.field3: result3}
+            return _reconstruct(value, changed)
         else:
             return value
 
@@ -1415,22 +1429,18 @@ class ObjectOfN(Pattern):
             return NoMatch
 
         name: str
-        fields: dict[str, Any] = {}
-        changed: bool = False
         pattern: Pattern
+        changed: dict[str, Any] = {}
         for name, pattern in self.fields.items():
             attr = getattr(value, name)
             result = pattern.match(attr, ctx)
             if result is NoMatch:
                 return NoMatch
             elif result is not attr:
-                changed = True
-                fields[name] = result
-            else:
-                fields[name] = attr
+                changed[name] = result
 
         if changed:
-            return type(value)(**fields)
+            return _reconstruct(value, changed)
         else:
             return value
 
@@ -1458,8 +1468,8 @@ class ObjectOfX(Pattern):
         )
 
     @cython.cfunc
-    def match(self, value, context):
-        if self.type_.match(value, context) is NoMatch:
+    def match(self, value, ctx: Context):
+        if self.type_.match(value, ctx) is NoMatch:
             return NoMatch
 
         # the pattern requirest more positional arguments than the object has
@@ -1471,27 +1481,24 @@ class ObjectOfX(Pattern):
 
         name: str
         pattern: Pattern
-        fields: dict[str, Any] = {}
-        changed: bool = False
+        changed: dict[str, Any] = {}
         for name, pattern in patterns.items():
             try:
                 attr = getattr(value, name)
             except AttributeError:
                 return NoMatch
 
-            result = pattern.match(attr, context)
+            result = pattern.match(attr, ctx)
             if result is NoMatch:
                 return NoMatch
             elif result is not attr:
-                changed = True
-                fields[name] = result
-            else:
-                fields[name] = attr
+                changed[name] = result
 
         if changed:
-            return type(value)(**fields)
+            return _reconstruct(value, changed)
         else:
             return value
+
 
 @cython.final
 @cython.cclass
@@ -1504,7 +1511,7 @@ class CallableWith(Pattern):
         self.return_ = pattern(return_)
 
     @cython.cfunc
-    def match(self, value, ctx):
+    def match(self, value, ctx: Context):
         if not callable(value):
             return NoMatch
 
