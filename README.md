@@ -9,9 +9,9 @@ Examples
 ========
 
 ```python
-from koerce.sugar import match, Namespace
-from koerce.patterns import SomeOf, NoMatch, ListOf
-
+from koerce import match, NoMatch
+from koerce.sugar import Namespace
+from koerce.patterns import SomeOf, ListOf
 
 assert match([1, 2, 3, SomeOf(int, at_least=1)], four) == four
 assert match([1, 2, 3, SomeOf(int, at_least=1)], three) is NoMatch

@@ -1825,6 +1825,141 @@ class VariadicPatternList(Pattern):
 
         return self.type_(result)
 
+@cython.ccall
+def PatternMap(fields) -> Pattern:
+    if len(fields) == 1:
+        return PatternMap1(fields)
+    elif len(fields) == 2:
+        return PatternMap2(fields)
+    else:
+        return PatternMapN(fields)
+
+
+@cython.final
+@cython.cclass
+class PatternMap1(Pattern):
+    field1: str
+    pattern1: Pattern
+
+    def __init__(self, fields):
+        (self.field1, pattern1), = fields.items()
+        self.pattern1 = pattern(pattern1)
+
+    def __repr__(self) -> str:
+        return f"PatternMap1({self.field1!r}={self.pattern1!r})"
+
+    def equals(self, other: PatternMap1) -> bool:
+        return self.field1 == other.field1 and self.pattern1 == other.pattern1
+
+    @cython.cfunc
+    def match(self, value, ctx: Context):
+        if not isinstance(value, Mapping):
+            return NoMatch
+
+        try:
+            item1 = value[self.field1]
+        except KeyError:
+            return NoMatch
+        result1 = self.pattern1.match(item1, ctx)
+        if result1 is NoMatch:
+            return NoMatch
+        elif result1 is not item1:
+            return type(value)({**value, self.field1: result1})
+        else:
+            return value
+
+@cython.final
+@cython.cclass
+class PatternMap2(Pattern):
+    field1: str
+    field2: str
+    pattern1: Pattern
+    pattern2: Pattern
+
+    def __init__(self, fields):
+        (self.field1, pattern1), (self.field2, pattern2) = fields.items()
+        self.pattern1 = pattern(pattern1)
+        self.pattern2 = pattern(pattern2)
+
+    def __repr__(self) -> str:
+        return f"PatternMap2({self.field1!r}={self.pattern1!r}, {self.field2!r}={self.pattern2!r})"
+
+    def equals(self, other: PatternMap2) -> bool:
+        return (
+            self.field1 == other.field1
+            and self.pattern1 == other.pattern1
+            and self.field2 == other.field2
+            and self.pattern2 == other.pattern2
+        )
+
+    @cython.cfunc
+    def match(self, value, ctx: Context):
+        if not isinstance(value, Mapping):
+            return NoMatch
+
+        try:
+            item1 = value[self.field1]
+        except KeyError:
+            return NoMatch
+        result1 = self.pattern1.match(item1, ctx)
+        if result1 is NoMatch:
+            return NoMatch
+
+        try:
+            item2 = value[self.field2]
+        except KeyError:
+            return NoMatch
+        result2 = self.pattern2.match(item2, ctx)
+        if result2 is NoMatch:
+            return NoMatch
+
+        if result1 is not item1 or result2 is not item2:
+            return type(value)({**value, self.field1: result1, self.field2: result2})
+        else:
+            return value
+
+
+
+@cython.final
+@cython.cclass
+class PatternMapN(Pattern):
+    fields: dict[str, Pattern]
+
+    def __init__(self, fields):
+        self.fields = {k: pattern(v) for k, v in fields.items()}
+
+    def __repr__(self) -> str:
+        return f"PatternMapN({self.fields!r})"
+
+    def equals(self, other: PatternMapN) -> bool:
+        return self.fields == other.fields
+
+    @cython.cfunc
+    def match(self, value, ctx: Context):
+        if not isinstance(value, Mapping):
+            return NoMatch
+
+        name: str
+        pattern: Pattern
+        changed: dict[str, Any] = {}
+        for name, pattern in self.fields.items():
+            try:
+                item = value[name]
+            except KeyError:
+                return NoMatch
+            result = pattern.match(item, ctx)
+            if result is NoMatch:
+                return NoMatch
+            elif result is not item:
+                changed[name] = result
+
+        if changed:
+            return type(value)({**value, **changed})
+        else:
+            return value
+
+
+
 
 @cython.ccall
 def pattern(obj: Any, allow_custom: bool = True) -> Pattern:
