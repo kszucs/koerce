@@ -14,18 +14,15 @@ SOURCE_DIR = Path("koerce")
 BUILD_DIR = Path("cython_build")
 
 
-
 cythonized_modules = cythonize(
     [
         Extension(
             "koerce.builders",
             ["koerce/builders.py"],
-            # extra_compile_args=["-O3"]
         ),
         Extension(
             "koerce.patterns",
             ["koerce/patterns.py"],
-            # extra_compile_args=["-O3"]
         ),
     ],
     build_dir=BUILD_DIR,
@@ -39,9 +36,11 @@ cythonized_modules = cythonize(
         # "wraparound": False,
         # "nonecheck": False,
         # "profile": True,
+        # "annotation_typing": False
     },
     # always rebuild, even if files untouched
     force=False,
+    # emit_linenums=True
 )
 
 dist = Distribution({"ext_modules": cythonized_modules})

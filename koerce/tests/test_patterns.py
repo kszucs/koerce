@@ -55,6 +55,7 @@ from koerce.patterns import (
     Option,
     Pattern,
     PatternList,
+    PatternMap,
     Replace,
     SequenceOf,
     SomeChunksOf,
@@ -85,6 +86,11 @@ class Min(Pattern):
         return self.min == other.min
 
 
+class FrozenDict(dict):
+    def __setitem__(self, key: Any, value: Any) -> None:
+        raise TypeError("Cannot modify a frozen dict")
+
+
 various_values = [1, "1", 1.0, object, False, None]
 
 
@@ -96,6 +102,23 @@ def test_anything(value):
 @pytest.mark.parametrize("value", various_values)
 def test_nothing(value):
     assert Nothing().apply(value) is NoMatch
+
+
+@pytest.mark.parametrize(
+    ("inner", "default", "value", "expected"),
+    [
+        (Anything(), None, None, None),
+        (Anything(), None, "three", "three"),
+        (Anything(), 1, None, 1),
+        (AsType(int), 11, None, 11),
+        (AsType(int), None, None, None),
+        (AsType(int), None, 18, 18),
+        (AsType(str), None, "caracal", "caracal"),
+    ],
+)
+def test_option(inner, default, value, expected):
+    p = Option(inner, default=default)
+    assert p.apply(value) == expected
 
 
 @pytest.mark.parametrize("value", various_values)
@@ -489,7 +512,7 @@ def test_none_of():
     assert p.apply(1.0, context={}) == 1.0
     assert p.apply(-1.0, context={}) is NoMatch
     assert p.apply(1, context={}) is NoMatch
-    #assert p.describe() == "anything except an int or a value that satisfies negative()"
+    # assert p.describe() == "anything except an int or a value that satisfies negative()"
 
 
 def test_generic_sequence_of():
@@ -564,7 +587,14 @@ class Baz:
         self.i = i
 
     def __eq__(self, other):
-        return type(self) is type(other) and self.e == other.e and self.f == other.f and self.g == other.g and self.h == other.h and self.i == other.i
+        return (
+            type(self) is type(other)
+            and self.e == other.e
+            and self.f == other.f
+            and self.g == other.g
+            and self.h == other.h
+            and self.i == other.i
+        )
 
 
 def test_object_pattern():
@@ -740,8 +770,8 @@ def test_pattern_list():
     assert p.apply([1, 2, 3.0, 4.0, 5.0], context={}) == [1, 2, 3, 4.0, 5.0]
 
     # subpattern is a sequence
-    # p = PatternList([1, 2, 3, SomeOf(AsType(int), at_least=1)])
-    # assert p.apply([1, 2, 3, 4.0, 5.0], context={}) == [1, 2, 3, 4, 5]
+    p = PatternList([1, 2, 3, SomeOf(AsType(int), at_least=1)])
+    assert p.apply([1, 2, 3, 4.0, 5.0], context={}) == [1, 2, 3, 4, 5]
 
 
 def test_pattern_list_from_tuple_typehint():
@@ -968,7 +998,6 @@ def test_matching_sequence_complicated():
     assert match([0, SomeOf([1, 2, str]), 3], v) == v
 
 
-
 def test_pattern_sequence_with_nested_some_of():
     assert SomeChunksOf(1, 2) == SomeOf(1, 2)
 
@@ -1121,12 +1150,12 @@ def test_pattern_decorator():
             dict[str, float],
             DictOf(InstanceOf(str), InstanceOf(float)),
         ),
-        # (FrozenDict[str, int], FrozenDictOf(InstanceOf(str), InstanceOf(int))),
+        (FrozenDict[str, int], MappingOf(InstanceOf(str), InstanceOf(int), FrozenDict)),
         (Literal["alpha", "beta", "gamma"], IsIn(("alpha", "beta", "gamma"))),
-        # (
-        #     Callable[[str, int], str],
-        #     CallableWith((InstanceOf(str), InstanceOf(int)), InstanceOf(str)),
-        # ),
+        (
+            Callable[[str, int], str],
+            CallableWith((InstanceOf(str), InstanceOf(int)), InstanceOf(str)),
+        ),
         # (Callable, InstanceOf(CallableABC)),
     ],
 )
@@ -1278,8 +1307,7 @@ def test_pattern_function():
     # assert pattern(f) == Custom(f)
 
     # matching mapping values
-    assert pattern({"a": 1, "b": 2}) == EqValue({"a": 1, "b": 2})
-
+    assert pattern({"a": 1, "b": 2}) == PatternMap({"a": EqValue(1), "b": EqValue(2)})
 
 
 def test_callable_with():
@@ -1339,3 +1367,41 @@ def test_callable_with_default_arguments():
     assert p.apply(f) is NoMatch
     assert p.apply(g) == g
     assert p.apply(h) == h
+
+
+def test_pattern_from_callable():
+    def func(a: int, b: str) -> str: ...
+
+    args, ret = Pattern.from_callable(func)
+    assert args == PatternMap({"a": InstanceOf(int), "b": InstanceOf(str)})
+    assert ret == InstanceOf(str)
+
+    def func(a: int, b: str, c: str = "0") -> str: ...
+
+    args, ret = Pattern.from_callable(func)
+    assert args == PatternMap(
+        {"a": InstanceOf(int), "b": InstanceOf(str), "c": Option(InstanceOf(str), "0")}
+    )
+    assert ret == InstanceOf(str)
+
+    def func(a: int, b: str, *args): ...
+
+    args, ret = Pattern.from_callable(func)
+    assert args == PatternMap(
+        {"a": InstanceOf(int), "b": InstanceOf(str), "args": TupleOf(Anything())}
+    )
+    assert ret == Anything()
+
+    def func(a: int, b: str, c: str = "0", *args, **kwargs: int) -> float: ...
+
+    args, ret = Pattern.from_callable(func)
+    assert args == PatternMap(
+        {
+            "a": InstanceOf(int),
+            "b": InstanceOf(str),
+            "c": Option(InstanceOf(str), "0"),
+            "args": TupleOf(Anything()),
+            "kwargs": MappingOf(Anything(), InstanceOf(int)),
+        }
+    )
+    assert ret == InstanceOf(float)

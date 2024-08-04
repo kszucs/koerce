@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import inspect
 import itertools
 import typing
 from typing import Any, TypeVar
@@ -177,3 +178,41 @@ class RewindableIterator:
     def checkpoint(self):
         """Create a checkpoint of the current iterator state."""
         self._iterator, self._checkpoint = itertools.tee(self._iterator)
+
+
+class Signature(inspect.Signature):
+    def unbind(self, this: dict[str, Any]) -> tuple[tuple[Any, ...], dict[str, Any]]:
+        """Reverse bind of the parameters.
+
+        Attempts to reconstructs the original arguments as keyword only arguments.
+
+        Parameters
+        ----------
+        this : Any
+            Object with attributes matching the signature parameters.
+
+        Returns
+        -------
+        args : (args, kwargs)
+            Tuple of positional and keyword arguments.
+
+        """
+        # does the reverse of bind, but doesn't apply defaults
+        args: list = []
+        kwargs: dict = {}
+        for name, param in self.parameters.items():
+            value = this[name]
+            if param.kind is inspect.Parameter.POSITIONAL_OR_KEYWORD:
+                args.append(value)
+            elif param.kind is inspect.Parameter.VAR_POSITIONAL:
+                args.extend(value)
+            elif param.kind is inspect.Parameter.VAR_KEYWORD:
+                kwargs.update(value)
+            elif param.kind is inspect.Parameter.KEYWORD_ONLY:
+                kwargs[name] = value
+            elif param.kind is inspect.Parameter.POSITIONAL_ONLY:
+                args.append(value)
+            else:
+                raise TypeError(f"unsupported parameter kind {param.kind}")
+
+        return tuple(args), kwargs
