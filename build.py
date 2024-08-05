@@ -31,15 +31,16 @@ cythonized_modules = cythonize(
     # nthreads=multiprocessing.cpu_count() * 2,
     compiler_directives={
         "language_level": "3",
-        # "binding": False,
-        # "boundscheck": False,
+        "binding": False,
+        "boundscheck": False,
+        "nonecheck": False,
+        "always_allow_keywords": False,
         # "wraparound": False,
-        # "nonecheck": False,
         # "profile": True,
         # "annotation_typing": False
     },
     # always rebuild, even if files untouched
-    force=False,
+    force=True,
     # emit_linenums=True
 )
 
