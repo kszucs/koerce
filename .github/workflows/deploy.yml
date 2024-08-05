@@ -45,6 +45,7 @@ jobs:
       - name: Build sdist
         run: |
           pip install poetry
+          poetry self add "poetry-dynamic-versioning[plugin]"
           poetry build -f sdist
 
       - uses: actions/upload-artifact@v4
