@@ -49,6 +49,12 @@ cmd = build_ext(dist)
 cmd.ensure_finalized()
 cmd.run()
 
+# remove all binaries *.so, *.dll, *.lib, *.pyd, *.dylib
+for ext in ["so", "dll", "lib", "pyd", "dylib"]:
+    for f in SOURCE_DIR.glob(f"*.{ext}"):
+        print(f"Removing previously built binary {f}")  # noqa: T201
+        f.unlink()
+
 for output in cmd.get_outputs():
     relative_extension = os.path.relpath(output, cmd.build_lib)
     print(f"Copying {output} to {relative_extension}")  # noqa: T201
