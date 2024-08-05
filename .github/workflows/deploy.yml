@@ -38,6 +38,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-tags: true
 
       - name: Build sdist
         run: |
@@ -71,3 +73,4 @@ jobs:
       - uses: pypa/gh-action-pypi-publish@release/v1
         # with:
         #   repository-url: https://test.pypi.org/legacy/
+
