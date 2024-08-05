@@ -42,9 +42,16 @@ jobs:
           fetch-tags: true
           fetch-depth: 0
 
+      - name: Set up python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install poetry
+        uses: snok/install-poetry@v1
+
       - name: Build sdist
         run: |
-          pip install poetry
           poetry self add "poetry-dynamic-versioning[plugin]"
           poetry build -f sdist
 
