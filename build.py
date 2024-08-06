@@ -7,9 +7,6 @@ from pathlib import Path
 from setuptools import Distribution, Extension
 from Cython.Build import build_ext, cythonize
 
-# import Cython.Compiler.Options
-# Cython.Compiler.Options.cimport_from_pyx = True
-
 SOURCE_DIR = Path("koerce")
 BUILD_DIR = Path("cython_build")
 
