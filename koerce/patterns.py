@@ -1222,19 +1222,18 @@ class Capture(Pattern):
 
     """
 
-    key: str
+    key: str | Deferred | Builder
     what: Pattern
 
     def __init__(self, k: str | Deferred | Builder, what=_any):
-        key: str
         if isinstance(k, (Deferred, Builder)):
-            k = builder(k)
-            if isinstance(k, Variable):
-                key = k.name
+            var = builder(k)
+            if isinstance(var, Variable):
+                key: str = var.name
             else:
                 raise TypeError("Only variables can be used as capture keys")
         else:
-            key = k
+            key = cython.cast(str, k)
         self.key = key
         self.what = pattern(what)
 
