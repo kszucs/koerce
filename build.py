@@ -25,6 +25,10 @@ cythonized_modules = cythonize(
             "koerce.patterns",
             ["koerce/patterns.py"],
         ),
+        Extension(
+            "koerce.utils",
+            ["koerce/utils.py"],
+        ),
     ],
     build_dir=BUILD_DIR,
     # generate anannotated .html output files.
@@ -41,7 +45,7 @@ cythonized_modules = cythonize(
         # "annotation_typing": False
     },
     # always rebuild, even if files untouched
-    force=True,
+    force=False,
     # emit_linenums=True
 )
 

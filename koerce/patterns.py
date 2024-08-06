@@ -3,7 +3,6 @@ from __future__ import annotations
 import importlib
 from collections.abc import Callable, Mapping, Sequence
 from enum import Enum
-from inspect import Parameter
 from types import UnionType
 from typing import (
     Annotated,
@@ -18,8 +17,11 @@ from typing import (
 import cython
 from typing_extensions import GenericMeta, get_original_bases
 
+# TODO(kszucs): would be nice to cimport Signature and Builder
 from .builders import Builder, Deferred, Variable, builder
 from .utils import (
+    EMPTY,
+    Parameter,
     RewindableIterator,
     Signature,
     get_type_args,
@@ -209,17 +211,17 @@ class Pattern:
             args = {}
         elif isinstance(args, (list, tuple)):
             # create a mapping of parameter name to pattern
-            args = dict(zip(sig.parameters.keys(), args))
+            args = {param.name: arg for param, arg in zip(sig.parameters, args)}
         elif not isinstance(args, dict):
             raise TypeError(f"patterns must be a list or dict, got {type(args)}")
 
         retpat: Pattern
         argpat: Pattern
         argpats: dict[str, Pattern] = {}
-        for param in sig.parameters.values():
+        for param in sig.parameters:
             name: str = param.name
-            kind = param.kind
-            default = param.default
+            kind: int = param.kind
+            default = param.default_
             typehint = typehints.get(name)
 
             if name in args:
@@ -233,7 +235,7 @@ class Pattern:
                 argpat = TupleOf(argpat)
             elif kind is Parameter.VAR_KEYWORD:
                 argpat = DictOf(_any, argpat)
-            elif default is not Parameter.empty:
+            elif default is not EMPTY:
                 argpat = Option(argpat, default=default)
 
             argpats[name] = argpat
@@ -1615,12 +1617,12 @@ class CallableWith(Pattern):
         has_varargs: bool = False
         positional: list = []
         required_positional: list = []
-        for p in sig.parameters.values():
+        for p in sig.parameters:
             if p.kind in (Parameter.POSITIONAL_ONLY, Parameter.POSITIONAL_OR_KEYWORD):
                 positional.append(p)
-                if p.default is Parameter.empty:
+                if p.default_ is EMPTY:
                     required_positional.append(p)
-            elif p.kind is Parameter.KEYWORD_ONLY and p.default is Parameter.empty:
+            elif p.kind is Parameter.KEYWORD_ONLY and p.default_ is EMPTY:
                 raise TypeError(
                     "Callable has mandatory keyword-only arguments which cannot be specified"
                 )
