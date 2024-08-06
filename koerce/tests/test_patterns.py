@@ -1117,6 +1117,12 @@ def test_pattern_sequence_with_nested_some_of():
             {"a": 1, "b": 2},
             {"a": 1, "b": 2},
         ),
+        (AnyOf(InstanceOf(str)) | InstanceOf(int), 7, 7),
+        (AllOf(InstanceOf(int)) & InstanceOf(int), 7, 7),
+        (InstanceOf(int) | AnyOf(InstanceOf(str)), 7, 7),
+        (InstanceOf(int) & AllOf(InstanceOf(int)), 7, 7),
+        (AnyOf(InstanceOf(str)) | AnyOf(InstanceOf(int)), 7, 7),
+        (AllOf(InstanceOf(int)) & AllOf(InstanceOf(int)), 7, 7),
     ],
 )
 def test_various_patterns(pattern, value, expected):
