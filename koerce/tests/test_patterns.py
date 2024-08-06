@@ -450,9 +450,12 @@ def test_any_all_of_operator_overloading():
     assert (is_int & is_str & is_float) == AllOf(is_int, is_str, is_float)
     assert (is_int | is_str | is_float) == AnyOf(is_int, is_str, is_float)
     assert (is_int | is_str & is_float) == AnyOf(is_int, AllOf(is_str, is_float))
-    assert ((is_int | is_str) | (is_float | is_int)) == AnyOf(is_int, is_str, is_float, is_int)
-    assert ((is_int & is_str) & (is_float & is_int)) == AllOf(is_int, is_str, is_float, is_int)
-
+    assert ((is_int | is_str) | (is_float | is_int)) == AnyOf(
+        is_int, is_str, is_float, is_int
+    )
+    assert ((is_int & is_str) & (is_float & is_int)) == AllOf(
+        is_int, is_str, is_float, is_int
+    )
 
 
 def test_all_of():
@@ -1472,7 +1475,9 @@ def test_instance_of_with_metaclass():
     my_other_instance = OtherClass()
 
     assert InstanceOf(Class).apply(my_instance, context={}) == my_instance
-    assert InstanceOf(OtherClass).apply(my_other_instance, context={}) == my_other_instance
+    assert (
+        InstanceOf(OtherClass).apply(my_other_instance, context={}) == my_other_instance
+    )
 
     assert InstanceOf(Class).apply(my_other_instance, context={}) == NoMatch
     assert InstanceOf(OtherClass).apply(my_instance, context={}) == NoMatch
