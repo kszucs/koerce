@@ -206,15 +206,13 @@ def test_type_of(typ, value, expected):
         assert pattern.apply(value) is NoMatch
 
 
-class MyMeta(type):
-	...
+class MyMeta(type): ...
 
 
-class MyClass(metaclass=MyMeta):
-	...
+class MyClass(metaclass=MyMeta): ...
 
-class MyOtherClass:
-    ...
+
+class MyOtherClass: ...
 
 
 def test_type_of_with_metaclass():
