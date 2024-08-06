@@ -4,8 +4,8 @@ import os
 import shutil
 from pathlib import Path
 
-from Cython.Build import build_ext, cythonize
 from setuptools import Distribution, Extension
+from Cython.Build import build_ext, cythonize
 
 # import Cython.Compiler.Options
 # Cython.Compiler.Options.cimport_from_pyx = True
