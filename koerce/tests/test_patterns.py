@@ -440,6 +440,21 @@ def test_any_of():
     # assert p.describe() == "an int, a str or a float"
 
 
+def test_any_all_of_operator_overloading():
+    is_int = InstanceOf(int)
+    is_str = InstanceOf(str)
+    is_float = InstanceOf(float)
+
+    assert (is_int | is_str) == AnyOf(is_int, is_str)
+    assert (is_int & is_str) == AllOf(is_int, is_str)
+    assert (is_int & is_str & is_float) == AllOf(is_int, is_str, is_float)
+    assert (is_int | is_str | is_float) == AnyOf(is_int, is_str, is_float)
+    assert (is_int | is_str & is_float) == AnyOf(is_int, AllOf(is_str, is_float))
+    assert ((is_int | is_str) | (is_float | is_int)) == AnyOf(is_int, is_str, is_float, is_int)
+    assert ((is_int & is_str) & (is_float & is_int)) == AllOf(is_int, is_str, is_float, is_int)
+
+
+
 def test_all_of():
     def negative(_):
         return _ < 0
