@@ -279,12 +279,8 @@ class Pattern:
         -------
         New pattern that matches if either of the patterns match.
         """
-        if isinstance(self, AnyOf) and isinstance(other, AnyOf):
-            return AnyOf(*self.patterns, *other.patterns)
-        elif isinstance(self, AnyOf):
-            return AnyOf(*self.patterns, other)
-        elif isinstance(other, AnyOf):
-            return AnyOf(self, *other.patterns)
+        if isinstance(other, AnyOf):
+            return AnyOf(self, *cython.cast(AnyOf, other).inners)
         else:
             return AnyOf(self, other)
 
@@ -300,12 +296,8 @@ class Pattern:
         -------
         New pattern that matches if both of the patterns match.
         """
-        if isinstance(self, AllOf) and isinstance(other, AllOf):
-            return AllOf(*self.patterns, *other.patterns)
-        elif isinstance(self, AllOf):
-            return AllOf(*self.patterns, other)
-        elif isinstance(other, AllOf):
-            return AllOf(self, *other.patterns)
+        if isinstance(other, AllOf):
+            return AllOf(self, *cython.cast(AllOf, other).inners)
         else:
             return AllOf(self, other)
 
@@ -883,6 +875,23 @@ class AnyOf(Pattern):
                 pass
         raise NoMatchError()
 
+    def __or__(self, other: Pattern) -> AnyOf:
+        """Syntax sugar for matching either of the patterns.
+
+        Parameters
+        ----------
+        other
+            The other pattern to match against.
+
+        Returns
+        -------
+        New pattern that matches if either of the patterns match.
+        """
+        if isinstance(other, AnyOf):
+            return AnyOf(*self.inners, *cython.cast(AnyOf, other).inners)
+        else:
+            return AnyOf(*self.inners, other)
+
 
 @cython.final
 @cython.cclass
@@ -904,6 +913,23 @@ class AllOf(Pattern):
         for inner in self.inners:
             value = inner.match(value, ctx)
         return value
+
+    def __and__(self, other: Pattern) -> AllOf:
+        """Syntax sugar for matching both of the patterns.
+
+        Parameters
+        ----------
+        other
+            The other pattern to match against.
+
+        Returns
+        -------
+        New pattern that matches if both of the patterns match.
+        """
+        if isinstance(other, AllOf):
+            return AllOf(*self.inners, *cython.cast(AllOf, other).inners)
+        else:
+            return AllOf(*self.inners, other)
 
 
 def NoneOf(*args) -> Pattern:
