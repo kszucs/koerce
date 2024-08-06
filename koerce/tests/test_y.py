@@ -135,11 +135,9 @@ def test_instance_of():
 #     return float(x) + float(y)
 
 
-
 # @annotated
 # def bar(x: int, y: str) -> float:
 #     return float(x) + float(y)
-
 
 
 # def test_e():
