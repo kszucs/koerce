@@ -1436,3 +1436,22 @@ def test_pattern_from_callable():
         }
     )
     assert ret == InstanceOf(float)
+
+
+def test_instance_of_with_metaclass():
+    class Meta(type): ...
+
+    class Class(metaclass=Meta): ...
+
+    class OtherMeta(type): ...
+
+    class OtherClass(metaclass=OtherMeta): ...
+
+    my_instance = Class()
+    my_other_instance = OtherClass()
+
+    assert InstanceOf(Class).apply(my_instance, context={}) == my_instance
+    assert InstanceOf(OtherClass).apply(my_other_instance, context={}) == my_other_instance
+
+    assert InstanceOf(Class).apply(my_other_instance, context={}) == NoMatch
+    assert InstanceOf(OtherClass).apply(my_instance, context={}) == NoMatch

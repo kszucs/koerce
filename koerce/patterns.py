@@ -488,9 +488,11 @@ class TypeOf(Pattern):
 @cython.final
 @cython.cclass
 class InstanceOf(Pattern):
-    type_: type
+    # performance doesn't seem to be affected:
+    # https://github.com/kszucs/koerce/pull/6#discussion_r1705833034
+    type_: Any
 
-    def __init__(self, type_: type):
+    def __init__(self, type_: Any):
         self.type_ = type_
 
     def __repr__(self) -> str:
@@ -516,7 +518,7 @@ class InstanceOf(Pattern):
 class LazyInstanceOf(Pattern):
     qualname: str
     package: str
-    type_: type
+    type_: Any
 
     def __init__(self, qualname: str):
         _common_package_aliases: dict[str, str] = {
@@ -556,7 +558,7 @@ class LazyInstanceOf(Pattern):
             else:
                 raise NoMatchError()
 
-        klass: type
+        klass: Any
         package: str
         for klass in type(value).__mro__:
             package = klass.__module__.split(".", 1)[0]
@@ -585,7 +587,7 @@ def GenericInstanceOf(typ) -> Pattern:
 @cython.final
 @cython.cclass
 class GenericInstanceOf1(Pattern):
-    origin: type
+    origin: Any
     name1: str
     pattern1: Pattern
 
@@ -622,7 +624,7 @@ class GenericInstanceOf1(Pattern):
 @cython.final
 @cython.cclass
 class GenericInstanceOf2(Pattern):
-    origin: type
+    origin: Any
     name1: str
     name2: str
     pattern1: Pattern
@@ -667,7 +669,7 @@ class GenericInstanceOf2(Pattern):
 @cython.final
 @cython.cclass
 class GenericInstanceOfN(Pattern):
-    origin: type
+    origin: Any
     fields: dict[str, Pattern]
 
     def __init__(self, typ):
@@ -704,9 +706,9 @@ class GenericInstanceOfN(Pattern):
 @cython.final
 @cython.cclass
 class SubclassOf(Pattern):
-    type_: type
+    type_: Any
 
-    def __init__(self, type_: type):
+    def __init__(self, type_: Any):
         self.type_ = type_
 
     def __repr__(self) -> str:
@@ -725,7 +727,7 @@ class SubclassOf(Pattern):
 
 
 # @cython.ccall
-# def As(type_: type) -> Pattern:
+# def As(type_: Any) -> Pattern:
 #     origin = get_type_origin(type_)
 #     if origin is None:
 #         if hasattr(type_, "__coerce__"):
@@ -742,9 +744,9 @@ class SubclassOf(Pattern):
 @cython.final
 @cython.cclass
 class AsType(Pattern):
-    type_: type
+    type_: Any
 
-    def __init__(self, type_: type):
+    def __init__(self, type_: Any):
         self.type_ = type_
 
     def __repr__(self) -> str:
@@ -764,9 +766,9 @@ class AsType(Pattern):
 @cython.final
 @cython.cclass
 class CoercedTo(Pattern):
-    type_: type
+    type_: Any
 
-    def __init__(self, type_: type):
+    def __init__(self, type_: Any):
         if not hasattr(type_, "__coerce__"):
             raise TypeError(f"{type_} does not implement the Coercible protocol")
         self.type_ = type_
@@ -796,7 +798,7 @@ class CoercedTo(Pattern):
 @cython.final
 @cython.cclass
 class GenericCoercedTo(Pattern):
-    origin: type
+    origin: Any
     params: dict[str, type]
     checker: Pattern
 
@@ -1317,11 +1319,11 @@ def _reconstruct(value: Any, changed: dict[str, Any]):
 @cython.final
 @cython.cclass
 class ObjectOf1(Pattern):
-    type_: type
+    type_: Any
     field1: str
     pattern1: Pattern
 
-    def __init__(self, type_: type, **kwargs):
+    def __init__(self, type_: Any, **kwargs):
         assert len(kwargs) == 1
         self.type_ = type_
         ((self.field1, pattern1),) = kwargs.items()
@@ -1355,13 +1357,13 @@ class ObjectOf1(Pattern):
 @cython.final
 @cython.cclass
 class ObjectOf2(Pattern):
-    type_: type
+    type_: Any
     field1: str
     pattern1: Pattern
     field2: str
     pattern2: Pattern
 
-    def __init__(self, type_: type, **kwargs):
+    def __init__(self, type_: Any, **kwargs):
         assert len(kwargs) == 2
         self.type_ = type_
         (self.field1, pattern1), (self.field2, pattern2) = kwargs.items()
@@ -1401,7 +1403,7 @@ class ObjectOf2(Pattern):
 @cython.final
 @cython.cclass
 class ObjectOf3(Pattern):
-    type_: type
+    type_: Any
     field1: str
     field2: str
     field3: str
@@ -1409,7 +1411,7 @@ class ObjectOf3(Pattern):
     pattern2: Pattern
     pattern3: Pattern
 
-    def __init__(self, type_: type, **kwargs):
+    def __init__(self, type_: Any, **kwargs):
         assert len(kwargs) == 3
         self.type_ = type_
         (self.field1, pattern1), (self.field2, pattern2), (self.field3, pattern3) = (
@@ -1477,10 +1479,10 @@ class ObjectOfN(Pattern):
 
     """
 
-    type_: type
+    type_: Any
     fields: dict[str, Pattern]
 
-    def __init__(self, type_: type, **kwargs):
+    def __init__(self, type_: Any, **kwargs):
         self.type_ = type_
         self.fields = {k: pattern(v) for k, v in kwargs.items()}
 
@@ -1769,7 +1771,7 @@ class FixedPatternList(Pattern):
     """
 
     patterns: list[Pattern]
-    type_: type
+    type_: Any
 
     def __init__(self, patterns, type):
         self.patterns = list(map(pattern, patterns))
@@ -1811,7 +1813,7 @@ class FixedPatternList(Pattern):
 @cython.cclass
 class VariadicPatternList(Pattern):
     patterns: list[Pattern]
-    type_: type
+    type_: Any
 
     def __init__(self, patterns, type=list):
         self.patterns = list(map(pattern, patterns))

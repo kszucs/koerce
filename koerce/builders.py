@@ -664,7 +664,7 @@ class Sequence(Builder):
         The items to construct the sequence from.
     """
 
-    type_: type
+    type_: Any
     items: list[Builder]
 
     def __init__(self, items):
@@ -703,7 +703,7 @@ class Mapping(Builder):
         The items to construct the mapping from.
     """
 
-    type_: type
+    type_: Any
     items: dict[Any, Builder]
 
     def __init__(self, items):
