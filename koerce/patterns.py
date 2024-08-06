@@ -1225,13 +1225,16 @@ class Capture(Pattern):
     key: str
     what: Pattern
 
-    def __init__(self, key: str | Deferred | Builder, what=_any):
-        if isinstance(key, (Deferred, Builder)):
-            key = builder(key)
-            if isinstance(key, Variable):
-                key = key.name
+    def __init__(self, k: str | Deferred | Builder, what=_any):
+        key: str
+        if isinstance(k, (Deferred, Builder)):
+            k = builder(k)
+            if isinstance(k, Variable):
+                key = k.name
             else:
                 raise TypeError("Only variables can be used as capture keys")
+        else:
+            key = k
         self.key = key
         self.what = pattern(what)
 
