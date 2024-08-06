@@ -72,7 +72,7 @@ def get_type_params(typ: Any) -> dict[TypeVar, type]:
     {'T': <class 'int'>, 'U': <class 'str'>}
     """
     args: tuple = get_type_args(typ)
-    origin: type = get_type_origin(typ)  # or typ
+    origin: Any = get_type_origin(typ)  # or typ
     params: tuple = getattr(origin, "__parameters__", ())
 
     result: dict[str, type] = {}
