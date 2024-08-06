@@ -488,6 +488,8 @@ class TypeOf(Pattern):
 @cython.final
 @cython.cclass
 class InstanceOf(Pattern):
+    # performance doesn't seem to be affected:
+    # https://github.com/kszucs/koerce/pull/6#discussion_r1705833034
     type_: Any
 
     def __init__(self, type_: Any):
