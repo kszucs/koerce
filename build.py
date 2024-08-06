@@ -4,11 +4,12 @@ import os
 import shutil
 from pathlib import Path
 
-from Cython.Build import build_ext, cythonize
-from setuptools import Distribution, Extension
+# setuptools *must* come before Cython, otherwise Cython's distutils hacking
+# will override setuptools' build_ext command and cause problems in other build
+# systems such as nix.
 
-# import Cython.Compiler.Options
-# Cython.Compiler.Options.cimport_from_pyx = True
+from setuptools import Distribution, Extension
+from Cython.Build import build_ext, cythonize
 
 SOURCE_DIR = Path("koerce")
 BUILD_DIR = Path("cython_build")

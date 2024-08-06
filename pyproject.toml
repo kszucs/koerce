@@ -150,6 +150,7 @@ required-imports = ["from __future__ import annotations"]
     "E731",  # Do not assign a `lambda` expression, use a `def`
     "S301",  # pickle is allowed in tests
 ]
+"build.py" = ["I001"] # because of distutils hacking happening in cython
 
 [tool.ruff.format]
 docstring-code-format = true
