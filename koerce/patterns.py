@@ -1223,7 +1223,7 @@ class Capture(Pattern):
     key: str
     what: Pattern
 
-    def __init__(self, key, what=_any):
+    def __init__(self, key: str | Deferred | Builder, what=_any):
         if isinstance(key, (Deferred, Builder)):
             key = builder(key)
             if isinstance(key, Variable):
