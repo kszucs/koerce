@@ -280,11 +280,11 @@ class Pattern:
         New pattern that matches if either of the patterns match.
         """
         if isinstance(self, AnyOf) and isinstance(other, AnyOf):
-            return AnyOf(*self.patterns, *other.patterns)
+            return AnyOf(*self.inners, *other.inners)
         elif isinstance(self, AnyOf):
-            return AnyOf(*self.patterns, other)
+            return AnyOf(*self.inners, other)
         elif isinstance(other, AnyOf):
-            return AnyOf(self, *other.patterns)
+            return AnyOf(self, *other.inners)
         else:
             return AnyOf(self, other)
 
@@ -301,11 +301,11 @@ class Pattern:
         New pattern that matches if both of the patterns match.
         """
         if isinstance(self, AllOf) and isinstance(other, AllOf):
-            return AllOf(*self.patterns, *other.patterns)
+            return AllOf(*self.inners, *other.inners)
         elif isinstance(self, AllOf):
-            return AllOf(*self.patterns, other)
+            return AllOf(*self.inners, other)
         elif isinstance(other, AllOf):
-            return AllOf(self, *other.patterns)
+            return AllOf(self, *other.inners)
         else:
             return AllOf(self, other)
 
