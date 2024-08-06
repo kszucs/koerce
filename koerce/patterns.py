@@ -1220,7 +1220,7 @@ class Capture(Pattern):
 
     """
 
-    key: str | Deferred | Builder
+    key: str
     what: Pattern
 
     def __init__(self, key: str | Deferred | Builder, what=_any):
