@@ -301,3 +301,16 @@ def test_annotated_function_with_varkwargs():
 #         test(1.0, 2.0, 3.0, 4, c=5.0, d=6)
 
 #     assert len(excinfo.value.errors) == 2
+
+
+def test_capture_with_matmul():
+    ctx = {}
+    x = var("x")
+
+    p = x @ InstanceOf(float)
+
+    assert p.apply(1, context=ctx) is NoMatch
+    assert ctx == {}
+
+    assert p.apply(1.0, ctx) == 1.0
+    assert ctx == {"x": 1.0}

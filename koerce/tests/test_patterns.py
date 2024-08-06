@@ -1451,7 +1451,9 @@ def test_instance_of_with_metaclass():
     my_other_instance = OtherClass()
 
     assert InstanceOf(Class).apply(my_instance, context={}) == my_instance
-    assert InstanceOf(OtherClass).apply(my_other_instance, context={}) == my_other_instance
+    assert (
+        InstanceOf(OtherClass).apply(my_other_instance, context={}) == my_other_instance
+    )
 
     assert InstanceOf(Class).apply(my_other_instance, context={}) == NoMatch
     assert InstanceOf(OtherClass).apply(my_instance, context={}) == NoMatch
