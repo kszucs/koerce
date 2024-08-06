@@ -520,6 +520,21 @@ def test_capture():
     assert ctx == {"result": 12}
 
 
+@pytest.mark.parametrize(
+    "x", [Deferred(Variable("x")), Variable("x")], ids=["deferred", "builder"]
+)
+def test_capture_with_deferred_and_builder(x):
+    ctx = {}
+
+    p = Capture(x, InstanceOf(float))
+
+    assert p.apply(1, context=ctx) is NoMatch
+    assert ctx == {}
+
+    assert p.apply(1.0, ctx) == 1.0
+    assert ctx == {"x": 1.0}
+
+
 def test_none_of():
     def negative(x):
         return x < 0
