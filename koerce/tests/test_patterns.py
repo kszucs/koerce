@@ -206,6 +206,24 @@ def test_type_of(typ, value, expected):
         assert pattern.apply(value) is NoMatch
 
 
+class MyMeta(type):
+	...
+
+
+class MyClass(metaclass=MyMeta):
+	...
+
+class MyOtherClass:
+    ...
+
+
+def test_type_of_with_metaclass():
+    p = TypeOf(MyClass)
+    v = MyClass()
+    assert p.apply(v) is v
+    assert p.apply(MyOtherClass()) is NoMatch
+
+
 def test_lazy_instance_of():
     # pick a rarely used stdlib module
     assert "graphlib" not in sys.modules

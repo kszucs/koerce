@@ -464,9 +464,10 @@ class EqDeferred(Pattern):
 @cython.final
 @cython.cclass
 class TypeOf(Pattern):
-    type_: type
+    type_: Any
 
-    def __init__(self, type_: type):
+    def __init__(self, type_):
+        assert isinstance(type_, type)
         self.type_ = type_
 
     def __repr__(self) -> str:
