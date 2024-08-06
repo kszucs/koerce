@@ -1,6 +1,7 @@
 [tool.poetry]
 name = "koerce"
-version = "0.0.1"
+# intentionally 0.0.0; poetry-dynamic-versioning handles the bump
+version = "0.0.0"
 description = "Python Pattern Matching"
 authors = ["Krisztian Szucs <szucs.krisztian@gmail.com>"]
 license = "Apache-2.0"
