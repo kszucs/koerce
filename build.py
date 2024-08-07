@@ -27,7 +27,6 @@ cythonized_modules = cythonize(
     build_dir=BUILD_DIR,
     # generate anannotated .html output files.
     annotate=True,
-    nthreads=min(os.cpu_count(), len(extensions)),
     compiler_directives={
         "language_level": "3",
         "binding": False,
