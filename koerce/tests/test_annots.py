@@ -90,21 +90,21 @@ def test_signature_bind_various():
     def func(a: int, b: str, c=1) -> float: ...
 
     sig = Signature.from_callable(func)
-    bound = sig.bind(1, "2")
+    bound = sig(1, "2")
     assert bound == {"a": 1, "b": "2", "c": 1}
 
     # with variable positional arguments
     def func(a: int, b: str, *args: int, c=1) -> float: ...
 
     sig = Signature.from_callable(func)
-    bound = sig.bind(1, "2", 3, 4)
+    bound = sig(1, "2", 3, 4)
     assert bound == {"a": 1, "b": "2", "args": (3, 4), "c": 1}
 
     # with both variadic positional and variadic keyword arguments
     def func(a: int, b: str, *args: int, c=1, **kwargs: int) -> float: ...
 
     sig = Signature.from_callable(func)
-    bound = sig.bind(1, "2", 3, 4, x=5, y=6)
+    bound = sig(1, "2", 3, 4, x=5, y=6)
     assert bound == {
         "a": 1,
         "b": "2",
@@ -117,26 +117,26 @@ def test_signature_bind_various():
     def func(a: int, b: str, /, c=1) -> float: ...
 
     sig = Signature.from_callable(func)
-    bound = sig.bind(1, "2")
+    bound = sig(1, "2")
     assert bound == {"a": 1, "b": "2", "c": 1}
 
     with pytest.raises(TypeError, match="passed as keyword argument"):
-        sig.bind(a=1, b="2", c=3)
+        sig(a=1, b="2", c=3)
 
     # with keyword only arguments
     def func(a: int, b: str, *, c=1) -> float: ...
 
     sig = Signature.from_callable(func)
-    bound = sig.bind(1, "2", c=3)
+    bound = sig(1, "2", c=3)
     assert bound == {"a": 1, "b": "2", "c": 3}
 
     with pytest.raises(TypeError, match="too many positional arguments"):
-        sig.bind(1, "2", 3)
+        sig(1, "2", 3)
 
     def func(a, *args, b, z=100, **kwargs): ...
 
     sig = Signature.from_callable(func)
-    bound = sig.bind(10, 20, b=30, c=40, args=50, kwargs=60)
+    bound = sig(10, 20, b=30, c=40, args=50, kwargs=60)
     assert bound == {
         "a": 10,
         "args": (20,),
@@ -149,7 +149,7 @@ def test_signature_bind_various():
 def call(func, *args, **kwargs):
     # it also tests the unbind method
     sig = Signature.from_callable(func)
-    bound = sig.bind(*args, **kwargs)
+    bound = sig(*args, **kwargs)
     ubargs, ubkwargs = sig.unbind(bound)
     return func(*ubargs, **ubkwargs)
 
@@ -158,14 +158,14 @@ def test_signature_bind_no_arguments():
     def func(): ...
 
     sig = Signature.from_callable(func)
-    assert sig.bind() == {}
+    assert sig() == {}
 
     with pytest.raises(TypeError, match="too many positional arguments"):
-        sig.bind(1)
+        sig(1)
     with pytest.raises(TypeError, match="too many positional arguments"):
-        sig.bind(1, keyword=2)
+        sig(1, keyword=2)
     with pytest.raises(TypeError, match="got an unexpected keyword argument 'keyword'"):
-        sig.bind(keyword=1)
+        sig(keyword=1)
 
 
 def test_signature_bind_positional_or_keyword_arguments():
@@ -240,7 +240,7 @@ def test_signature_bind_varargs():
     assert call(func, args=1) == ((), {"args": 1})
 
     sig = Signature.from_callable(func)
-    ba = sig.bind(args=1)
+    ba = sig(args=1)
     assert ba == {"args": (), "kwargs": {"args": 1}}
 
 
@@ -429,10 +429,10 @@ def test_signature_bind_with_arg_named_self():
         pass
 
     sig = Signature.from_callable(test)
-    ba = sig.bind(1, 2, 3)
+    ba = sig(1, 2, 3)
     args, _ = sig.unbind(ba)
     assert args == (1, 2, 3)
-    ba = sig.bind(1, self=2, b=3)
+    ba = sig(1, self=2, b=3)
     args, _ = sig.unbind(ba)
     assert args == (1, 2, 3)
 
@@ -441,7 +441,7 @@ def test_signature_unbind_from_callable():
     def test(a: int, b: int, c: int = 1): ...
 
     sig = Signature.from_callable(test)
-    bound = sig.bind(2, 3)
+    bound = sig(2, 3)
 
     assert bound == {"a": 2, "b": 3, "c": 1}
 
@@ -454,14 +454,14 @@ def test_signature_unbind_from_callable_with_varargs():
     def test(a: int, b: int, *args: int): ...
 
     sig = Signature.from_callable(test)
-    bound = sig.bind(2, 3)
+    bound = sig(2, 3)
 
     assert bound == {"a": 2, "b": 3, "args": ()}
     args, kwargs = sig.unbind(bound)
     assert args == (2, 3)
     assert kwargs == {}
 
-    bound = sig.bind(2, 3, 4, 5)
+    bound = sig(2, 3, 4, 5)
     assert bound == {"a": 2, "b": 3, "args": (4, 5)}
     args, kwargs = sig.unbind(bound)
     assert args == (2, 3, 4, 5)
@@ -472,14 +472,14 @@ def test_signature_unbind_from_callable_with_positional_only_arguments():
     def test(a: int, b: int, /, c: int = 1): ...
 
     sig = Signature.from_callable(test)
-    bound = sig.bind(2, 3)
+    bound = sig(2, 3)
     assert bound == {"a": 2, "b": 3, "c": 1}
 
     args, kwargs = sig.unbind(bound)
     assert args == (2, 3, 1)
     assert kwargs == {}
 
-    bound = sig.bind(2, 3, 4)
+    bound = sig(2, 3, 4)
     assert bound == {"a": 2, "b": 3, "c": 4}
 
     args, kwargs = sig.unbind(bound)
@@ -491,7 +491,7 @@ def test_signature_unbind_from_callable_with_keyword_only_arguments():
     def test(a: int, b: int, *, c: float, d: float = 0.0): ...
 
     sig = Signature.from_callable(test)
-    bound = sig.bind(2, 3, c=4.0)
+    bound = sig(2, 3, c=4.0)
     assert bound == {"a": 2, "b": 3, "c": 4.0, "d": 0.0}
 
     args, kwargs = sig.unbind(bound)
@@ -503,7 +503,7 @@ def test_signature_unbind():
     def func(a, b, c=1): ...
 
     sig = Signature.from_callable(func)
-    bound = sig.bind(1, 2)
+    bound = sig(1, 2)
 
     assert bound == {"a": 1, "b": 2, "c": 1}
 
@@ -518,7 +518,7 @@ def test_signature_unbind_with_empty_variadic(d):
         return a, b, c, args, e
 
     sig = Signature.from_callable(func)
-    bound = sig.bind(1, 2, 3, *d, e=4)
+    bound = sig(1, 2, 3, *d, e=4)
     assert bound == {"a": 1, "b": 2, "c": 3, "args": d, "e": 4}
 
     args, kwargs = sig.unbind(bound)

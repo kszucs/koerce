@@ -175,7 +175,11 @@ class Signature:
             and self.return_annotation == right.return_annotation
         )
 
-    def bind(self, /, *args: Any, **kwargs: Any) -> dict[str, Any]:
+    def __call__(self, /, *args, **kwargs):
+        return self.bind(args, kwargs)
+
+    @cython.ccall
+    def bind(self, args: tuple[Any, ...], kwargs: dict[str, Any]) -> dict[str, Any]:
         """Bind the arguments to the signature.
 
         Parameters
@@ -257,6 +261,7 @@ class Signature:
 
         return bound
 
+    @cython.ccall
     def unbind(self, bound: dict[str, Any]) -> tuple[tuple[Any, ...], dict[str, Any]]:
         """Reverse bind of the parameters.
 
@@ -431,7 +436,7 @@ def annotated(_1=None, _2=None, _3=None, **kwargs):
     else:
         func, patterns, return_pattern = _3, _1, _2
 
-    sig = Signature.from_callable(func)
+    sig: Signature = Signature.from_callable(func)
     argpats, retpat = sig.to_pattern(
         overrides=patterns or kwargs, return_override=return_pattern
     )
@@ -439,10 +444,10 @@ def annotated(_1=None, _2=None, _3=None, **kwargs):
     @functools.wraps(func)
     def wrapped(*args, **kwargs):
         # 0. Bind the arguments to the signature
-        bound = sig.bind(*args, **kwargs)
+        bound: dict[str, Any] = sig.bind(args, kwargs)
 
         # 1. Validate the passed arguments
-        values = argpats.apply(bound)
+        values: Any = argpats.apply(bound)
         if values is NoMatch:
             raise ValidationError()
 
