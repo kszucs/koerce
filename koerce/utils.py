@@ -5,6 +5,8 @@ import itertools
 import typing
 from typing import Any, TypeVar
 
+import cython
+
 get_type_args = typing.get_args
 get_type_origin = typing.get_origin
 
@@ -180,15 +182,193 @@ class RewindableIterator:
         self._iterator, self._checkpoint = itertools.tee(self._iterator)
 
 
-class Signature(inspect.Signature):
-    def unbind(self, this: dict[str, Any]) -> tuple[tuple[Any, ...], dict[str, Any]]:
+EMPTY = inspect.Parameter.empty
+
+POSITIONAL_ONLY = cython.declare(cython.int, int(inspect.Parameter.POSITIONAL_ONLY))
+POSITIONAL_OR_KEYWORD = cython.declare(
+    cython.int, int(inspect.Parameter.POSITIONAL_OR_KEYWORD)
+)
+VAR_POSITIONAL = cython.declare(cython.int, int(inspect.Parameter.VAR_POSITIONAL))
+KEYWORD_ONLY = cython.declare(cython.int, int(inspect.Parameter.KEYWORD_ONLY))
+VAR_KEYWORD = cython.declare(cython.int, int(inspect.Parameter.VAR_KEYWORD))
+
+
+@cython.final
+@cython.cclass
+class Parameter:
+    POSITIONAL_ONLY: typing.ClassVar[int] = int(inspect.Parameter.POSITIONAL_ONLY)
+    POSITIONAL_OR_KEYWORD: typing.ClassVar[int] = int(
+        inspect.Parameter.POSITIONAL_OR_KEYWORD
+    )
+    VAR_POSITIONAL: typing.ClassVar[int] = int(inspect.Parameter.VAR_POSITIONAL)
+    KEYWORD_ONLY: typing.ClassVar[int] = int(inspect.Parameter.KEYWORD_ONLY)
+    VAR_KEYWORD: typing.ClassVar[int] = int(inspect.Parameter.VAR_KEYWORD)
+
+    name = cython.declare(str, visibility="readonly")
+    kind = cython.declare(cython.int, visibility="readonly")
+    # Cannot use C reserved keyword 'default' here
+    default_ = cython.declare(object, visibility="readonly")
+    annotation = cython.declare(object, visibility="readonly")
+
+    def __init__(
+        self, name: str, kind: int, default: Any = EMPTY, annotation: Any = EMPTY
+    ):
+        self.name = name
+        self.kind = kind
+        self.default_ = default
+        self.annotation = annotation
+
+    def __str__(self) -> str:
+        result: str = self.name
+        if self.annotation is not EMPTY:
+            if hasattr(self.annotation, "__qualname__"):
+                result += f": {self.annotation.__qualname__}"
+            else:
+                result += f": {self.annotation}"
+        if self.default_ is not EMPTY:
+            if self.annotation is EMPTY:
+                result = f"{result}={self.default_}"
+            else:
+                result = f"{result} = {self.default_!r}"
+        if self.kind == VAR_POSITIONAL:
+            result = f"*{result}"
+        elif self.kind == VAR_KEYWORD:
+            result = f"**{result}"
+        return result
+
+    def __repr__(self):
+        return f'<{self.__class__.__name__} "{self}">'
+
+    def __eq__(self, other: Any) -> bool:
+        if not isinstance(other, Parameter):
+            return NotImplemented
+        right: Parameter = cython.cast(Parameter, other)
+        return (
+            self.name == right.name
+            and self.kind == right.kind
+            and self.default_ == right.default_
+            and self.annotation == right.annotation
+        )
+
+
+@cython.final
+@cython.cclass
+class Signature:
+    parameters = cython.declare(list[Parameter], visibility="readonly")
+    return_annotation = cython.declare(object, visibility="readonly")
+
+    def __init__(self, parameters: list[Parameter], return_annotation: Any = EMPTY):
+        self.parameters = parameters
+        self.return_annotation = return_annotation
+
+    @staticmethod
+    def from_callable(func: Any) -> Signature:
+        sig = inspect.signature(func)
+        params: list[Parameter] = [
+            Parameter(p.name, int(p.kind), p.default, p.annotation)
+            for p in sig.parameters.values()
+        ]
+        return Signature(params, sig.return_annotation)
+
+    def __eq__(self, other: Any) -> bool:
+        if not isinstance(other, Signature):
+            return NotImplemented
+        right: Signature = cython.cast(Signature, other)
+        return (
+            self.parameters == right.parameters
+            and self.return_annotation == right.return_annotation
+        )
+
+    def bind(self, /, *args: Any, **kwargs: Any) -> dict[str, Any]:
+        """Bind the arguments to the signature.
+
+        Parameters
+        ----------
+        args : Any
+            Positional arguments.
+        kwargs : Any
+            Keyword arguments.
+
+        Returns
+        -------
+        dict
+            Mapping of parameter names to argument values.
+
+        """
+        i: cython.int = 0
+        kind: cython.int
+        param: Parameter
+        bound: dict[str, Any] = {}
+
+        # 1. HANDLE ARGS
+        for i in range(len(args)):
+            if i >= len(self.parameters):
+                raise TypeError("too many positional arguments")
+
+            param = self.parameters[i]
+            kind = param.kind
+            if kind is POSITIONAL_OR_KEYWORD:
+                if param.name in kwargs:
+                    raise TypeError(f"multiple values for argument '{param.name}'")
+                bound[param.name] = args[i]
+            elif kind is VAR_KEYWORD or kind is KEYWORD_ONLY:
+                raise TypeError("too many positional arguments")
+            elif kind is VAR_POSITIONAL:
+                bound[param.name] = args[i:]
+                break
+            elif kind is POSITIONAL_ONLY:
+                bound[param.name] = args[i]
+            else:
+                raise TypeError("unreachable code")
+
+        # 2. INCREMENT PARAMETER INDEX
+        if args:
+            i += 1
+
+        # 3. HANDLE KWARGS
+        for param in self.parameters[i:]:
+            if param.kind is POSITIONAL_OR_KEYWORD or param.kind is KEYWORD_ONLY:
+                if param.name in kwargs:
+                    bound[param.name] = kwargs.pop(param.name)
+                elif param.default_ is EMPTY:
+                    raise TypeError(f"missing a required argument: '{param.name}'")
+                else:
+                    bound[param.name] = param.default_
+            elif param.kind is VAR_POSITIONAL:
+                bound[param.name] = ()
+            elif param.kind is VAR_KEYWORD:
+                bound[param.name] = kwargs
+                break
+            elif param.kind is POSITIONAL_ONLY:
+                if param.default_ is EMPTY:
+                    if param.name in kwargs:
+                        raise TypeError(
+                            f"positional only argument '{param.name}' passed as keyword argument"
+                        )
+                    else:
+                        raise TypeError(
+                            f"missing required positional argument {param.name}"
+                        )
+                else:
+                    bound[param.name] = param.default_
+            else:
+                raise TypeError("unreachable code")
+        else:
+            if kwargs:
+                raise TypeError(
+                    f"got an unexpected keyword argument '{next(iter(kwargs))}'"
+                )
+
+        return bound
+
+    def unbind(self, bound: dict[str, Any]) -> tuple[tuple[Any, ...], dict[str, Any]]:
         """Reverse bind of the parameters.
 
         Attempts to reconstructs the original arguments as keyword only arguments.
 
         Parameters
         ----------
-        this : Any
+        bound
             Object with attributes matching the signature parameters.
 
         Returns
@@ -200,17 +380,18 @@ class Signature(inspect.Signature):
         # does the reverse of bind, but doesn't apply defaults
         args: list = []
         kwargs: dict = {}
-        for name, param in self.parameters.items():
-            value = this[name]
-            if param.kind is inspect.Parameter.POSITIONAL_OR_KEYWORD:
+        param: Parameter
+        for param in self.parameters:
+            value = bound[param.name]
+            if param.kind is POSITIONAL_OR_KEYWORD:
                 args.append(value)
-            elif param.kind is inspect.Parameter.VAR_POSITIONAL:
+            elif param.kind is VAR_POSITIONAL:
                 args.extend(value)
-            elif param.kind is inspect.Parameter.VAR_KEYWORD:
+            elif param.kind is VAR_KEYWORD:
                 kwargs.update(value)
-            elif param.kind is inspect.Parameter.KEYWORD_ONLY:
-                kwargs[name] = value
-            elif param.kind is inspect.Parameter.POSITIONAL_ONLY:
+            elif param.kind is KEYWORD_ONLY:
+                kwargs[param.name] = value
+            elif param.kind is POSITIONAL_ONLY:
                 args.append(value)
             else:
                 raise TypeError(f"unsupported parameter kind {param.kind}")

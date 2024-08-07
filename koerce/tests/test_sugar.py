@@ -39,11 +39,10 @@ def test_signature_unbind_from_callable():
 
     sig = Signature.from_callable(test)
     bound = sig.bind(2, 3)
-    bound.apply_defaults()
 
-    assert bound.arguments == {"a": 2, "b": 3, "c": 1}
+    assert bound == {"a": 2, "b": 3, "c": 1}
 
-    args, kwargs = sig.unbind(bound.arguments)
+    args, kwargs = sig.unbind(bound)
     assert args == (2, 3, 1)
     assert kwargs == {}
 
@@ -53,17 +52,15 @@ def test_signature_unbind_from_callable_with_varargs():
 
     sig = Signature.from_callable(test)
     bound = sig.bind(2, 3)
-    bound.apply_defaults()
 
-    assert bound.arguments == {"a": 2, "b": 3, "args": ()}
-    args, kwargs = sig.unbind(bound.arguments)
+    assert bound == {"a": 2, "b": 3, "args": ()}
+    args, kwargs = sig.unbind(bound)
     assert args == (2, 3)
     assert kwargs == {}
 
     bound = sig.bind(2, 3, 4, 5)
-    bound.apply_defaults()
-    assert bound.arguments == {"a": 2, "b": 3, "args": (4, 5)}
-    args, kwargs = sig.unbind(bound.arguments)
+    assert bound == {"a": 2, "b": 3, "args": (4, 5)}
+    args, kwargs = sig.unbind(bound)
     assert args == (2, 3, 4, 5)
     assert kwargs == {}
 
@@ -73,18 +70,16 @@ def test_signature_unbind_from_callable_with_positional_only_arguments():
 
     sig = Signature.from_callable(test)
     bound = sig.bind(2, 3)
-    bound.apply_defaults()
-    assert bound.arguments == {"a": 2, "b": 3, "c": 1}
+    assert bound == {"a": 2, "b": 3, "c": 1}
 
-    args, kwargs = sig.unbind(bound.arguments)
+    args, kwargs = sig.unbind(bound)
     assert args == (2, 3, 1)
     assert kwargs == {}
 
     bound = sig.bind(2, 3, 4)
-    bound.apply_defaults()
-    assert bound.arguments == {"a": 2, "b": 3, "c": 4}
+    assert bound == {"a": 2, "b": 3, "c": 4}
 
-    args, kwargs = sig.unbind(bound.arguments)
+    args, kwargs = sig.unbind(bound)
     assert args == (2, 3, 4)
     assert kwargs == {}
 
@@ -94,10 +89,9 @@ def test_signature_unbind_from_callable_with_keyword_only_arguments():
 
     sig = Signature.from_callable(test)
     bound = sig.bind(2, 3, c=4.0)
-    bound.apply_defaults()
-    assert bound.arguments == {"a": 2, "b": 3, "c": 4.0, "d": 0.0}
+    assert bound == {"a": 2, "b": 3, "c": 4.0, "d": 0.0}
 
-    args, kwargs = sig.unbind(bound.arguments)
+    args, kwargs = sig.unbind(bound)
     assert args == (2, 3)
     assert kwargs == {"c": 4.0, "d": 0.0}
 
@@ -107,11 +101,10 @@ def test_signature_unbind():
 
     sig = Signature.from_callable(func)
     bound = sig.bind(1, 2)
-    bound.apply_defaults()
 
-    assert bound.arguments == {"a": 1, "b": 2, "c": 1}
+    assert bound == {"a": 1, "b": 2, "c": 1}
 
-    args, kwargs = sig.unbind(bound.arguments)
+    args, kwargs = sig.unbind(bound)
     assert args == (1, 2, 1)
     assert kwargs == {}
 
@@ -123,10 +116,9 @@ def test_signature_unbind_with_empty_variadic(d):
 
     sig = Signature.from_callable(func)
     bound = sig.bind(1, 2, 3, *d, e=4)
-    bound.apply_defaults()
-    assert bound.arguments == {"a": 1, "b": 2, "c": 3, "args": d, "e": 4}
+    assert bound == {"a": 1, "b": 2, "c": 3, "args": d, "e": 4}
 
-    args, kwargs = sig.unbind(bound.arguments)
+    args, kwargs = sig.unbind(bound)
     assert args == (1, 2, 3, *d)
     assert kwargs == {"e": 4}
 
@@ -254,7 +246,7 @@ def test_annotated_function_without_annotations():
         return a, b, c
 
     assert test(1, 2, 3) == (1, 2, 3)
-    assert test.__signature__.parameters.keys() == {"a", "b", "c"}
+    assert [p.name for p in test.__signature__.parameters] == ["a", "b", "c"]
 
 
 # def test_annotated_function_without_decoration(snapshot):

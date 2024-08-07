@@ -174,10 +174,9 @@ def annotated(_1=None, _2=None, _3=None, **kwargs):
     def wrapped(*args, **kwargs):
         # 0. Bind the arguments to the signature
         bound = sig.bind(*args, **kwargs)
-        bound.apply_defaults()
 
         # 1. Validate the passed arguments
-        values = argpats.apply(bound.arguments)
+        values = argpats.apply(bound)
         if values is NoMatch:
             raise ValidationError()
 
