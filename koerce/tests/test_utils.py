@@ -1,9 +1,10 @@
 from __future__ import annotations
 
 import inspect
-from typing import Dict, Generic, List, Optional, Self, TypeVar, Union
+from typing import Dict, Generic, List, Optional, TypeVar, Union
 
 import pytest
+from typing_extensions import Self
 
 from koerce.utils import (
     get_type_boundvars,

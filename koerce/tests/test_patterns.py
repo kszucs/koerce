@@ -11,13 +11,13 @@ from typing import (
     List,
     Literal,
     Optional,
-    Self,
     Sequence,
     TypeVar,
     Union,
 )
 
 import pytest
+from typing_extensions import Self
 
 from koerce.builders import Call, Deferred, Variable
 from koerce.patterns import (

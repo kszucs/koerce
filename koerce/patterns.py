@@ -11,13 +11,12 @@ from typing import (
     ForwardRef,
     Literal,
     Optional,
-    Self,
     TypeVar,
     Union,
 )
 
 import cython
-from typing_extensions import GenericMeta, get_original_bases
+from typing_extensions import GenericMeta, Self, get_original_bases
 
 # TODO(kszucs): would be nice to cimport Signature and Builder
 from .builders import Builder, Deferred, Variable, builder
