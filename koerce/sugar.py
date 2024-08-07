@@ -9,6 +9,7 @@ from .patterns import (
     Context,
     Eq,
     If,
+    NoMatch,  # noqa: F401
     Pattern,
     pattern,
 )
