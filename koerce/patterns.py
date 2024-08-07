@@ -3,6 +3,7 @@ from __future__ import annotations
 import importlib
 from collections.abc import Callable, Mapping, Sequence
 from enum import Enum
+from inspect import Parameter, Signature
 from types import UnionType
 from typing import (
     Annotated,
@@ -10,6 +11,7 @@ from typing import (
     ForwardRef,
     Literal,
     Optional,
+    Self,
     TypeVar,
     Union,
 )
@@ -20,13 +22,9 @@ from typing_extensions import GenericMeta, get_original_bases
 # TODO(kszucs): would be nice to cimport Signature and Builder
 from .builders import Builder, Deferred, Variable, builder
 from .utils import (
-    EMPTY,
-    Parameter,
     RewindableIterator,
-    Signature,
     get_type_args,
     get_type_boundvars,
-    get_type_hints,
     get_type_origin,
     get_type_params,
 )
@@ -54,7 +52,9 @@ class NoMatch:
 @cython.cclass
 class Pattern:
     @staticmethod
-    def from_typehint(annot: Any, allow_coercion: bool = True) -> Pattern:
+    def from_typehint(
+        annot: Any, allow_coercion: bool = True, self_qualname: Optional[str] = None
+    ) -> Pattern:
         """Construct a validator from a python type annotation.
 
         Parameters
@@ -64,19 +64,29 @@ class Pattern:
             an already evaluated type annotation.
         allow_coercion
             Whether to use coercion if the typehint is a Coercible type.
+        self_qualname
+            The qualname of the class to use for Self typehints.
 
         Returns
         -------
         A pattern that matches the given type annotation.
         """
-        origin = get_type_origin(annot)
         args: tuple = get_type_args(annot)
+        origin: Any = get_type_origin(annot)
+        options: dict[str, Any] = {
+            "allow_coercion": allow_coercion,
+            "self_qualname": self_qualname,
+        }
 
         if origin is None:
             # the typehint is not generic
             if annot is Ellipsis or annot is Any:
                 # treat both `Any` and `...` as wildcard
                 return _any
+            elif annot is Self:
+                if self_qualname is None:
+                    raise ValueError("self_qualname must be provided for Self typehint")
+                return LazyInstanceOf(self_qualname)
             elif isinstance(annot, type):
                 # the typehint is a concrete type (e.g. int, str, etc.)
                 if allow_coercion and hasattr(annot, "__coerce__"):
@@ -93,7 +103,7 @@ class Pattern:
                         "Only covariant typevars are supported for now"
                     )
                 if annot.__bound__:
-                    return Pattern.from_typehint(annot.__bound__)
+                    return Pattern.from_typehint(annot.__bound__, **options)
                 else:
                     return _any
             elif isinstance(annot, Enum):
@@ -119,19 +129,24 @@ class Pattern:
                 # the typehint is Optional[*rest] which is equivalent to
                 # Union[*rest, None], so we construct an Option pattern
                 if len(rest) == 1:
-                    inner = Pattern.from_typehint(rest[0])
+                    inner = Pattern.from_typehint(rest[0], **options)
                 else:
-                    inner = AnyOf(*map(Pattern.from_typehint, rest))
+                    variants = [Pattern.from_typehint(arg, **options) for arg in rest]
+                    inner = AnyOf(*variants)
                 return Option(inner)
             else:
                 # the typehint is Union[*args] so we construct an AnyOf pattern
-                return AnyOf(*map(Pattern.from_typehint, args))
+                variants = [Pattern.from_typehint(arg, **options) for arg in args]
+                return AnyOf(*variants)
         elif origin is Annotated:
             # the Annotated typehint can be used to add extra validation logic
             # to the typehint, e.g. Annotated[int, Positive], the first argument
             # is used for isinstance checks, the rest are applied in conjunction
             annot, *extras = args
-            return AllOf(Pattern.from_typehint(annot), *extras)
+            return AllOf(
+                Pattern.from_typehint(annot, **options),
+                *extras,
+            )
         elif origin is Callable:
             # the Callable typehint is used to annotate functions, e.g. the
             # following typehint annotates a function that takes two integers
@@ -140,8 +155,10 @@ class Pattern:
                 # callable with args and return typehints construct a special
                 # CallableWith validator
                 arg_hints, return_hint = args
-                arg_patterns = list(map(Pattern.from_typehint, arg_hints))
-                return_pattern = Pattern.from_typehint(return_hint)
+                arg_patterns = [
+                    Pattern.from_typehint(arg, **options) for arg in arg_hints
+                ]
+                return_pattern = Pattern.from_typehint(return_hint, **options)
                 return CallableWith(arg_patterns, return_pattern)
             else:
                 # in case of Callable without args we check for the Callable
@@ -153,19 +170,20 @@ class Pattern:
             # tuple of integers, while tuple[int] is a tuple with a single int
             first, *rest = args
             if rest == [Ellipsis]:
-                return TupleOf(Pattern.from_typehint(first))
+                return TupleOf(Pattern.from_typehint(first, **options))
             else:
-                patterns = map(Pattern.from_typehint, args)
+                patterns = [Pattern.from_typehint(arg, **options) for arg in args]
                 return PatternList(patterns, origin)
         elif issubclass(origin, Sequence):
             # construct a validator for the sequence elements where all elements
             # must be of the same type, e.g. Sequence[int] is a sequence of ints
-            (value_inner,) = map(Pattern.from_typehint, args)
+            value_inner = Pattern.from_typehint(args[0], **options)
             return SequenceOf(value_inner, type_=origin)
         elif issubclass(origin, Mapping):
             # construct a validator for the mapping keys and values, e.g.
             # Mapping[str, int] is a mapping with string keys and int values
-            key_inner, value_inner = map(Pattern.from_typehint, args)
+            key_inner = Pattern.from_typehint(args[0], **options)
+            value_inner = Pattern.from_typehint(args[1], **options)
             return MappingOf(key_inner, value_inner, origin)
         elif isinstance(origin, GenericMeta):
             # construct a validator for the generic type, see the specific
@@ -178,76 +196,6 @@ class Pattern:
             raise TypeError(
                 f"Cannot create validator from annotation {annot!r} {origin!r}"
             )
-
-    @staticmethod
-    def from_callable(
-        fn: Callable, sig=None, args=None, return_=None
-    ) -> tuple[Pattern, Pattern]:
-        """Create patterns from a callable object.
-
-        Two patterns are created, one for the arguments and one for the return value.
-
-        Parameters
-        ----------
-        fn : Callable
-            Callable to create a signature from.
-        sig : Signature, default None
-            Signature to use for the callable. If None, a signature is created
-            from the callable.
-        args : list or dict, default None
-            Pass patterns to add missing or override existing argument type
-            annotations.
-        return_ : Pattern, default None
-            Pattern for the return value of the callable.
-
-        Returns
-        -------
-        Tuple of patterns for the arguments and the return value.
-        """
-        sig: Signature = sig or Signature.from_callable(fn)
-        typehints: dict[str, Any] = get_type_hints(fn)
-
-        if args is None:
-            args = {}
-        elif isinstance(args, (list, tuple)):
-            # create a mapping of parameter name to pattern
-            args = {param.name: arg for param, arg in zip(sig.parameters, args)}
-        elif not isinstance(args, dict):
-            raise TypeError(f"patterns must be a list or dict, got {type(args)}")
-
-        retpat: Pattern
-        argpat: Pattern
-        argpats: dict[str, Pattern] = {}
-        for param in sig.parameters:
-            name: str = param.name
-            kind: int = param.kind
-            default = param.default_
-            typehint = typehints.get(name)
-
-            if name in args:
-                argpat = pattern(args[name])
-            elif typehint is not None:
-                argpat = Pattern.from_typehint(typehint)
-            else:
-                argpat = _any
-
-            if kind is Parameter.VAR_POSITIONAL:
-                argpat = TupleOf(argpat)
-            elif kind is Parameter.VAR_KEYWORD:
-                argpat = DictOf(_any, argpat)
-            elif default is not EMPTY:
-                argpat = Option(argpat, default=default)
-
-            argpats[name] = argpat
-
-        if return_ is not None:
-            retpat = pattern(return_)
-        elif (typehint := typehints.get("return")) is not None:
-            retpat = Pattern.from_typehint(typehint)
-        else:
-            retpat = _any
-
-        return (PatternMap(argpats), retpat)
 
     def apply(self, value, context=None):
         if context is None:
@@ -515,6 +463,8 @@ class LazyInstanceOf(Pattern):
     type_: Any
 
     def __init__(self, qualname: str):
+        if not isinstance(qualname, str):
+            raise TypeError("qualname must be a string")
         _common_package_aliases: dict[str, str] = {
             "pa": "pyarrow",
             "pd": "pandas",
@@ -1617,12 +1567,12 @@ class CallableWith(Pattern):
         has_varargs: bool = False
         positional: list = []
         required_positional: list = []
-        for p in sig.parameters:
+        for p in sig.parameters.values():
             if p.kind in (Parameter.POSITIONAL_ONLY, Parameter.POSITIONAL_OR_KEYWORD):
                 positional.append(p)
-                if p.default_ is EMPTY:
+                if p.default is Parameter.empty:
                     required_positional.append(p)
-            elif p.kind is Parameter.KEYWORD_ONLY and p.default_ is EMPTY:
+            elif p.kind is Parameter.KEYWORD_ONLY and p.default is Parameter.empty:
                 raise TypeError(
                     "Callable has mandatory keyword-only arguments which cannot be specified"
                 )

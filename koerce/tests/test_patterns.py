@@ -11,6 +11,7 @@ from typing import (
     List,
     Literal,
     Optional,
+    Self,
     Sequence,
     TypeVar,
     Union,
@@ -1239,6 +1240,19 @@ def test_pattern_from_typehint_disable_coercion():
     assert isinstance(p, InstanceOf)
 
 
+def test_pattern_from_self_typehint():
+    p = Pattern.from_typehint(
+        List[Self], self_qualname="koerce.tests.test_patterns.MyClass"
+    )
+    assert p == SequenceOf(LazyInstanceOf("koerce.tests.test_patterns.MyClass"), list)
+    result = p.apply([MyClass(), MyClass()])
+    assert isinstance(result, list)
+    assert isinstance(result[0], MyClass)
+    assert isinstance(result[1], MyClass)
+
+    assert p.apply([MyClass(), 1]) is NoMatch
+
+
 class PlusOne:
     __slots__ = ("value",)
 
@@ -1422,44 +1436,6 @@ def test_callable_with_default_arguments():
     assert p.apply(f) is NoMatch
     assert p.apply(g) == g
     assert p.apply(h) == h
-
-
-def test_pattern_from_callable():
-    def func(a: int, b: str) -> str: ...
-
-    args, ret = Pattern.from_callable(func)
-    assert args == PatternMap({"a": InstanceOf(int), "b": InstanceOf(str)})
-    assert ret == InstanceOf(str)
-
-    def func(a: int, b: str, c: str = "0") -> str: ...
-
-    args, ret = Pattern.from_callable(func)
-    assert args == PatternMap(
-        {"a": InstanceOf(int), "b": InstanceOf(str), "c": Option(InstanceOf(str), "0")}
-    )
-    assert ret == InstanceOf(str)
-
-    def func(a: int, b: str, *args): ...
-
-    args, ret = Pattern.from_callable(func)
-    assert args == PatternMap(
-        {"a": InstanceOf(int), "b": InstanceOf(str), "args": TupleOf(Anything())}
-    )
-    assert ret == Anything()
-
-    def func(a: int, b: str, c: str = "0", *args, **kwargs: int) -> float: ...
-
-    args, ret = Pattern.from_callable(func)
-    assert args == PatternMap(
-        {
-            "a": InstanceOf(int),
-            "b": InstanceOf(str),
-            "c": Option(InstanceOf(str), "0"),
-            "args": TupleOf(Anything()),
-            "kwargs": MappingOf(Anything(), InstanceOf(int)),
-        }
-    )
-    assert ret == InstanceOf(float)
 
 
 def test_instance_of_with_metaclass():

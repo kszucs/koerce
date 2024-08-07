@@ -17,9 +17,10 @@ BUILD_DIR = Path("cython_build")
 
 
 extensions = [
+    Extension("koerce.annots", ["koerce/annots.py"]),
     Extension("koerce.builders", ["koerce/builders.py"]),
     Extension("koerce.patterns", ["koerce/patterns.py"]),
-    Extension("koerce.utils", ["koerce/utils.py"]),
+    # Extension("koerce.utils", ["koerce/utils.py"]),
 ]
 
 cythonized_modules = cythonize(
