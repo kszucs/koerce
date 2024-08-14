@@ -1,12 +1,15 @@
 from __future__ import annotations
 
 import inspect
-from typing import Dict, Generic, List, Optional, TypeVar, Union
+import pickle
+from typing import Dict, Generic, List, Mapping, Optional, TypeVar, Union
 
 import pytest
 from typing_extensions import Self
 
 from koerce.utils import (
+    FrozenDict,
+    RewindableIterator,
     get_type_boundvars,
     get_type_hints,
     get_type_params,
@@ -128,3 +131,59 @@ def test_get_type_boundvars_unable_to_deduce() -> None:
     msg = "Unable to deduce corresponding type attributes..."
     with pytest.raises(ValueError, match=msg):
         get_type_boundvars(MyDict[int, str])
+
+
+def test_rewindable_iterator():
+    it = RewindableIterator(range(10))
+    assert next(it) == 0
+    assert next(it) == 1
+    with pytest.raises(ValueError, match="No checkpoint to rewind to"):
+        it.rewind()
+
+    it.checkpoint()
+    assert next(it) == 2
+    assert next(it) == 3
+    it.rewind()
+    assert next(it) == 2
+    assert next(it) == 3
+    assert next(it) == 4
+    it.checkpoint()
+    assert next(it) == 5
+    assert next(it) == 6
+    it.rewind()
+    assert next(it) == 5
+    assert next(it) == 6
+    assert next(it) == 7
+    it.rewind()
+    assert next(it) == 5
+    assert next(it) == 6
+    assert next(it) == 7
+    assert next(it) == 8
+    assert next(it) == 9
+    with pytest.raises(StopIteration):
+        next(it)
+
+
+def test_frozendict():
+    d = FrozenDict({"a": 1, "b": 2, "c": 3})
+    e = FrozenDict(a=1, b=2, c=3)
+    f = FrozenDict(a=1, b=2, c=3, d=4)
+
+    assert isinstance(d, Mapping)
+
+    assert d == e
+    assert d != f
+
+    assert d["a"] == 1
+    assert d["b"] == 2
+
+    msg = "'FrozenDict' object does not support item assignment"
+    with pytest.raises(TypeError, match=msg):
+        d["a"] = 2
+    with pytest.raises(TypeError, match=msg):
+        d["d"] = 4
+
+    assert hash(FrozenDict(a=1, b=2)) == hash(FrozenDict(b=2, a=1))
+    assert hash(FrozenDict(a=1, b=2)) != hash(d)
+
+    assert d == pickle.loads(pickle.dumps(d))

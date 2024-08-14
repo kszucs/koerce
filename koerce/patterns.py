@@ -1,9 +1,9 @@
 from __future__ import annotations
 
 import importlib
+import inspect
 from collections.abc import Callable, Mapping, Sequence
 from enum import Enum
-from inspect import Parameter, Signature
 from types import UnionType
 from typing import (
     Annotated,
@@ -19,9 +19,10 @@ import cython
 from typing_extensions import GenericMeta, Self, get_original_bases
 
 # TODO(kszucs): would be nice to cimport Signature and Builder
-from .builders import Builder, Deferred, Variable, builder
+from .builders import Builder, Deferred, Var, builder
 from .utils import (
     RewindableIterator,
+    frozendict,
     get_type_args,
     get_type_boundvars,
     get_type_origin,
@@ -36,9 +37,14 @@ class CoercionError(Exception):
 Context = dict[str, Any]
 
 
+@cython.cclass
+class MatchError(Exception):
+    pass
+
+
 @cython.final
 @cython.cclass
-class NoMatchError(Exception):
+class NoMatchError(MatchError):
     pass
 
 
@@ -265,7 +271,7 @@ class Pattern:
         """
         return Capture(name, self)
 
-    def __rshift__(self, other: Deferred) -> Replace:
+    def __rshift__(self, other) -> Replace:
         """Syntax sugar for replacing a value.
 
         Parameters
@@ -700,6 +706,8 @@ class AsType(Pattern):
 
     @cython.cfunc
     def match(self, value, ctx: Context):
+        if isinstance(value, self.type_):
+            return value
         try:
             return self.type_(value)
         except ValueError:
@@ -904,8 +912,10 @@ class Option(Pattern):
     default: Any
 
     def __init__(self, pat, default=None):
-        self.pattern = pattern(pat)
         self.default = default
+        self.pattern = pattern(pat)
+        if isinstance(self.pattern, Option):
+            self.pattern = cython.cast(Option, self.pattern).pattern
 
     def __repr__(self) -> str:
         return f"Option({self.pattern!r}, default={self.default!r})"
@@ -916,10 +926,7 @@ class Option(Pattern):
     @cython.cfunc
     def match(self, value, ctx: Context):
         if value is None:
-            if self.default is None:
-                return None
-            else:
-                return self.default
+            return self.default
         else:
             return self.pattern.match(value, ctx)
 
@@ -1074,18 +1081,13 @@ class SequenceOf(Pattern):
         if isinstance(values, (str, bytes)):
             raise NoMatchError()
 
-        # optimization to avoid unnecessary iteration
-        if isinstance(self.item, Anything):
-            return values
-
+        # could initialize the result list with the length of values
+        result: list = []
         try:
-            it = iter(values)
+            for item in values:
+                result.append(self.item.match(item, ctx))
         except TypeError:
             raise NoMatchError()
-
-        result: list = []
-        for item in it:
-            result.append(self.item.match(item, ctx))
 
         return self.type_.match(result, ctx)
 
@@ -1122,12 +1124,15 @@ class MappingOf(Pattern):
     def __init__(self, key: Pattern, value: Pattern, type_=dict):
         self.key = pattern(key)
         self.value = pattern(value)
-        if isinstance(type_, type):
-            self.type_ = AsType(type_)
-        elif hasattr(type_, "__coerce__"):
+        if hasattr(type_, "__coerce__"):
             self.type_ = CoercedTo(type_)
         else:
-            raise TypeError(f"Cannot coerce to container type {type_}")
+            try:
+                type_({})
+            except TypeError:
+                self.type_ = AsType(dict)
+            else:
+                self.type_ = AsType(type_)
 
     def __repr__(self) -> str:
         return f"MappingOf({self.key!r}, {self.value!r}, {self.type_!r})"
@@ -1155,6 +1160,10 @@ class MappingOf(Pattern):
 
 def DictOf(key, value) -> Pattern:
     return MappingOf(key, value, dict)
+
+
+def FrozenDictOf(key, value) -> Pattern:
+    return MappingOf(key, value, frozendict)
 
 
 @cython.final
@@ -1202,10 +1211,10 @@ class Capture(Pattern):
     key: str
     what: Pattern
 
-    def __init__(self, key: str | Deferred | Builder, what=_any):
+    def __init__(self, key: Any, what=_any):
         if isinstance(key, (Deferred, Builder)):
             key = builder(key)
-            if isinstance(key, Variable):
+            if isinstance(key, Var):
                 key = key.name
             else:
                 raise TypeError("Only variables can be used as capture keys")
@@ -1336,8 +1345,8 @@ class ObjectOf1(Pattern):
 class ObjectOf2(Pattern):
     type_: Any
     field1: str
-    pattern1: Pattern
     field2: str
+    pattern1: Pattern
     pattern2: Pattern
 
     def __init__(self, type_: Any, **kwargs):
@@ -1354,8 +1363,8 @@ class ObjectOf2(Pattern):
         return (
             self.type_ == other.type_
             and self.field1 == other.field1
-            and self.pattern1 == other.pattern1
             and self.field2 == other.field2
+            and self.pattern1 == other.pattern1
             and self.pattern2 == other.pattern2
         )
 
@@ -1405,10 +1414,10 @@ class ObjectOf3(Pattern):
         return (
             self.type_ == other.type_
             and self.field1 == other.field1
-            and self.pattern1 == other.pattern1
             and self.field2 == other.field2
-            and self.pattern2 == other.pattern2
             and self.field3 == other.field3
+            and self.pattern1 == other.pattern1
+            and self.pattern2 == other.pattern2
             and self.pattern3 == other.pattern3
         )
 
@@ -1561,21 +1570,27 @@ class CallableWith(Pattern):
         if not callable(value):
             raise NoMatchError()
 
-        sig = Signature.from_callable(value)
+        sig = inspect.signature(value)
 
         has_varargs: bool = False
         positional: list = []
         required_positional: list = []
         for p in sig.parameters.values():
-            if p.kind in (Parameter.POSITIONAL_ONLY, Parameter.POSITIONAL_OR_KEYWORD):
+            if p.kind in (
+                inspect.Parameter.POSITIONAL_ONLY,
+                inspect.Parameter.POSITIONAL_OR_KEYWORD,
+            ):
                 positional.append(p)
-                if p.default is Parameter.empty:
+                if p.default is inspect.Parameter.empty:
                     required_positional.append(p)
-            elif p.kind is Parameter.KEYWORD_ONLY and p.default is Parameter.empty:
+            elif (
+                p.kind is inspect.Parameter.KEYWORD_ONLY
+                and p.default is inspect.Parameter.empty
+            ):
                 raise TypeError(
                     "Callable has mandatory keyword-only arguments which cannot be specified"
                 )
-            elif p.kind is Parameter.VAR_POSITIONAL:
+            elif p.kind is inspect.Parameter.VAR_POSITIONAL:
                 has_varargs = True
 
         if len(required_positional) > len(self.args):
@@ -1868,6 +1883,8 @@ def PatternMap(fields) -> Pattern:
         return PatternMap1(fields)
     elif len(fields) == 2:
         return PatternMap2(fields)
+    elif len(fields) == 3:
+        return PatternMap3(fields)
     else:
         return PatternMapN(fields)
 

@@ -3,7 +3,11 @@ from __future__ import annotations
 import itertools
 import sys
 import typing
+from collections.abc import Hashable
 from typing import Any, Optional, TypeVar
+
+K = TypeVar("K")
+V = TypeVar("V")
 
 get_type_args = typing.get_args
 get_type_origin = typing.get_origin
@@ -161,6 +165,33 @@ def get_type_boundvars(typ: Any) -> dict[TypeVar, tuple[str, type]]:
         )
 
     return result
+
+
+class FrozenDict(dict[K, V], Hashable):
+    __slots__ = ("__precomputed_hash__",)
+    __precomputed_hash__: int
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        hashable = frozenset(self.items())
+        object.__setattr__(self, "__precomputed_hash__", hash(hashable))
+
+    def __hash__(self) -> int:
+        return self.__precomputed_hash__
+
+    def __setitem__(self, key: K, value: V) -> None:
+        raise TypeError(
+            f"'{self.__class__.__name__}' object does not support item assignment"
+        )
+
+    def __setattr__(self, name: str, _: Any) -> None:
+        raise TypeError(f"Attribute {name!r} cannot be assigned to frozendict")
+
+    def __reduce__(self) -> tuple:
+        return (self.__class__, (dict(self),))
+
+
+frozendict = FrozenDict
 
 
 class RewindableIterator:

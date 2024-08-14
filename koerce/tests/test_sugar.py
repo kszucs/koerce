@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from koerce.sugar import NoMatch, match, var
+from koerce import NoMatch, match, var
 
 
 def test_capture_shorthand():
