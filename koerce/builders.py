@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import collections.abc
 import operator
-from collections.abc import Callable
 from typing import Any
 
 import cython
@@ -162,7 +161,7 @@ class Builder:
 
 @cython.final
 @cython.cclass
-class Custom(Builder):
+class Func(Builder):
     """Construct a value by calling a function.
 
     The function is called with two positional arguments:
@@ -177,20 +176,20 @@ class Custom(Builder):
         The function to apply.
     """
 
-    func: Callable
+    func: Any
 
-    def __init__(self, func):
+    def __init__(self, func: Any):
         self.func = func
 
     def __repr__(self):
         return f"{self.func.__name__}(...)"
 
-    def equals(self, other: Custom) -> bool:
+    def equals(self, other: Func) -> bool:
         return self.func == other.func
 
     @cython.cfunc
-    def build(self, context):
-        return self.func(**context)
+    def build(self, ctx: Context):
+        return self.func(**ctx)
 
 
 @cython.final
@@ -228,7 +227,7 @@ class Just(Builder):
 
 @cython.final
 @cython.cclass
-class Variable(Builder):
+class Var(Builder):
     """Retrieve a value from the context.
 
     Parameters
@@ -245,7 +244,7 @@ class Variable(Builder):
     def __repr__(self):
         return f"${self.name}"
 
-    def equals(self, other: Variable) -> bool:
+    def equals(self, other: Var) -> bool:
         return self.name == other.name
 
     @cython.cfunc
@@ -528,10 +527,10 @@ class Unop(Builder):
         The argument to apply the operator to.
     """
 
-    op: Callable
+    op: Any
     arg: Builder
 
-    def __init__(self, op: Callable, arg):
+    def __init__(self, op: Any, arg: Any):
         self.op = op
         self.arg = builder(arg)
 
@@ -563,11 +562,11 @@ class Binop(Builder):
         The right-hand side argument.
     """
 
-    op: Callable
+    op: Any
     arg1: Builder
     arg2: Builder
 
-    def __init__(self, op: Callable, arg1, arg2):
+    def __init__(self, op: Any, arg1: Any, arg2: Any):
         self.op = op
         self.arg1 = builder(arg1)
         self.arg2 = builder(arg2)
@@ -655,7 +654,7 @@ class Attr(Builder):
 
 @cython.final
 @cython.cclass
-class Sequence(Builder):
+class Seq(Builder):
     """Pattern that constructs a sequence from the given items.
 
     Parameters
@@ -680,7 +679,7 @@ class Sequence(Builder):
         else:
             return f"{self.type_.__name__}({elems})"
 
-    def equals(self, other: Sequence) -> bool:
+    def equals(self, other: Seq) -> bool:
         return self.type_ == other.type_ and self.items == other.items
 
     @cython.cfunc
@@ -694,7 +693,7 @@ class Sequence(Builder):
 
 @cython.final
 @cython.cclass
-class Mapping(Builder):
+class Map(Builder):
     """Pattern that constructs a mapping from the given items.
 
     Parameters
@@ -717,7 +716,7 @@ class Mapping(Builder):
         else:
             return f"{self.type_.__name__}({{{items}}})"
 
-    def equals(self, other: Mapping) -> bool:
+    def equals(self, other: Map) -> bool:
         return self.type_ == other.type_ and self.items == other.items
 
     @cython.cfunc
@@ -738,16 +737,16 @@ def builder(obj, allow_custom=False) -> Builder:
         return obj
     elif isinstance(obj, collections.abc.Mapping):
         # allow nesting deferred patterns in dicts
-        return Mapping(obj)
+        return Map(obj)
     elif isinstance(obj, collections.abc.Sequence):
         # allow nesting deferred patterns in tuples/lists
         if isinstance(obj, (str, bytes)):
             return Just(obj)
         else:
-            return Sequence(obj)
+            return Seq(obj)
     elif callable(obj) and allow_custom:
         # the object is used as a custom builder function
-        return Custom(obj)
+        return Func(obj)
     else:
         # the object is used as a constant value
         return Just(obj)

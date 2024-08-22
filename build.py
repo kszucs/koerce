@@ -3,6 +3,7 @@ from __future__ import annotations
 import os
 import shutil
 import sys
+import ast
 from pathlib import Path
 
 # setuptools *must* come before Cython, otherwise Cython's distutils hacking
@@ -16,17 +17,69 @@ SOURCE_DIR = Path("koerce")
 BUILD_DIR = Path("cython_build")
 
 
-extensions = [
-    Extension("koerce.annots", ["koerce/annots.py"]),
-    Extension("koerce.builders", ["koerce/builders.py"]),
-    Extension("koerce.patterns", ["koerce/patterns.py"]),
-    # Extension("koerce.utils", ["koerce/utils.py"]),
-]
+def extract_imports_and_code(path):
+    """Extracts the import statements and other code from python source."""
+    with path.open("r") as file:
+        tree = ast.parse(file.read(), filename=path.name)
+
+    code = []
+    imports = []
+    for node in tree.body:
+        if isinstance(node, (ast.Import, ast.ImportFrom)):
+            imports.append(node)
+        else:
+            code.append(node)
+
+    return imports, code
+
+
+def ignore_import(imp, modules):
+    absolute_names = ["koerce.{name}" for name in modules]
+    if isinstance(imp, ast.ImportFrom):
+        return imp.module in modules
+    elif isinstance(imp, ast.Import):
+        return imp.names[0].name in absolute_names
+    else:
+        raise TypeError(imp)
+
+
+def concatenate_files(file_paths, output_file):
+    all_imports = []
+    all_code = []
+    modules = []
+
+    for file_path in file_paths:
+        path = Path(SOURCE_DIR / file_path)
+        imports, code = extract_imports_and_code(path)
+        all_imports.extend(imports)
+        all_code.extend(code)
+        modules.append(path.stem)
+
+    # Deduplicate imports by their unparsed code
+    unique_imports = {ast.unparse(stmt): stmt for stmt in all_imports}
+
+    # Write to the output file
+    with (SOURCE_DIR / output_file).open("w") as out:
+        # Write unique imports
+        for code, stmt in unique_imports.items():
+            if not ignore_import(stmt, modules):
+                out.write(code)
+                out.write("\n")
+
+        # Write the rest of the code
+        for stmt in all_code:
+            out.write(ast.unparse(stmt))
+            out.write("\n\n\n")
+
+
+concatenate_files(["builders.py", "patterns.py", "annots.py"], "_internal.pyx")
+extension = Extension("koerce._internal", ["koerce/_internal.pyx"])
 
 cythonized_modules = cythonize(
-    extensions,
+    [extension],
     build_dir=BUILD_DIR,
-    # generate anannotated .html output files.
+    cache=True,
+    show_all_warnings=False,
     annotate=True,
     compiler_directives={
         "language_level": "3",

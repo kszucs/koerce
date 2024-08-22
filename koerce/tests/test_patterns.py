@@ -19,16 +19,18 @@ from typing import (
 import pytest
 from typing_extensions import Self
 
-from koerce.builders import Call, Deferred, Variable
-from koerce.patterns import (
+from koerce import match
+from koerce._internal import (
     AllOf,
     AnyOf,
     Anything,
     AsType,
+    Call,
     CallableWith,
     Capture,
     CoercedTo,
     CoercionError,
+    Deferred,
     DictOf,
     EqValue,
     GenericCoercedTo,
@@ -63,9 +65,9 @@ from koerce.patterns import (
     SomeOf,
     TupleOf,
     TypeOf,
+    Var,
     pattern,
 )
-from koerce.sugar import match
 
 
 class Min(Pattern):
@@ -540,7 +542,7 @@ def test_capture():
 
 
 @pytest.mark.parametrize(
-    "x", [Deferred(Variable("x")), Variable("x")], ids=["deferred", "builder"]
+    "x", [Deferred(Var("x")), Var("x")], ids=["deferred", "builder"]
 )
 def test_capture_with_deferred_and_builder(x):
     ctx = {}
@@ -762,7 +764,7 @@ def test_object_pattern_matching_order():
                 and self.c == other.c
             )
 
-    a = Variable("a")
+    a = Var("a")
     p = ObjectOf(Foo, Capture(a, InstanceOf(int)), c=a)
 
     assert p.apply(Foo(1, 2, 3)) is NoMatch
@@ -898,14 +900,14 @@ def test_matching():
 
 def test_replace_in_nested_object_pattern():
     # simple example using reference to replace a value
-    b = Variable("b")
+    b = Var("b")
     p = ObjectOf(Foo, 1, b=Replace(Anything(), b))
     f = p.apply(Foo(1, 2), {"b": 3})
     assert f.a == 1
     assert f.b == 3
 
     # nested example using reference to replace a value
-    d = Variable("d")
+    d = Var("d")
     p = ObjectOf(Foo, 1, b=ObjectOf(Bar, 2, d=Replace(Anything(), d)))
     g = p.apply(Foo(1, Bar(2, 3)), {"d": 4})
     assert g.b.c == 2
@@ -923,7 +925,7 @@ def test_replace_in_nested_object_pattern():
     assert isinstance(h.b, Foo)
     assert h.b.b == 3
 
-    d = Variable("d")
+    d = Var("d")
     p = ObjectOf(Foo, 1, b=ObjectOf(Bar, 2, d=d @ Anything()) >> Call(Foo, -1, b=d))
     h1 = p.apply(Foo(1, Bar(2, 3)), {})
     assert isinstance(h1, Foo)
@@ -942,8 +944,8 @@ def test_replace_in_nested_object_pattern():
 
 
 def test_replace_using_deferred():
-    x = Deferred(Variable("x"))
-    y = Deferred(Variable("y"))
+    x = Deferred(Var("x"))
+    y = Deferred(Var("y"))
 
     pat = ObjectOf(Foo, Capture(x), b=Capture(y)) >> Call(Foo, x, b=y)
     assert pat.apply(Foo(1, 2)) == Foo(1, 2)
@@ -982,7 +984,7 @@ def test_matching_sequence_pattern_keeps_original_type():
 
 
 def test_matching_sequence_with_captures():
-    x = Deferred(Variable("x"))
+    x = Deferred(Var("x"))
 
     v = list(range(1, 9))
     assert match([1, 2, 3, 4, SomeOf(...)], v) == v

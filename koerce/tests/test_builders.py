@@ -4,7 +4,7 @@ import operator
 
 import pytest
 
-from koerce.builders import (
+from koerce._internal import (
     Attr,
     Binop,
     Call,
@@ -13,18 +13,18 @@ from koerce.builders import (
     Call2,
     Call3,
     CallN,
-    Custom,
     Deferred,
+    Func,
     Item,
     Just,
-    Mapping,
-    Sequence,
+    Map,
+    Seq,
     Unop,
-    Variable,
+    Var,
     builder,
 )
 
-_ = Deferred(Variable("_"))
+_ = Deferred(Var("_"))
 
 
 def test_builder():
@@ -39,14 +39,11 @@ def test_builder():
     assert builder(Just(Just(1))) == Just(1)
     assert builder(MyClass) == Just(MyClass)
     assert builder(fn) == Just(fn)
-    assert builder(()) == Sequence(())
-    assert builder((1, 2, _)) == Sequence((Just(1), Just(2), _))
-    assert builder({}) == Mapping({})
-    assert builder({"a": 1, "b": _}) == Mapping({"a": Just(1), "b": _})
+    assert builder(()) == Seq(())
+    assert builder((1, 2, _)) == Seq((Just(1), Just(2), _))
+    assert builder({}) == Map({})
+    assert builder({"a": 1, "b": _}) == Map({"a": Just(1), "b": _})
     assert builder("string") == Just("string")
-
-    # assert builder(var("x")) == Variable("x")
-    # assert builder(Variable("x")) == Variable("x")
 
 
 def test_builder_just():
@@ -64,14 +61,14 @@ def test_builder_just():
     #     Just(Factory(lambda _: _))
 
 
-def test_builder_variable():
-    p = Variable("other")
+def test_builder_Var():
+    p = Var("other")
     context = {"other": 10}
     assert p.apply(context) == 10
 
 
-def test_builder_custom():
-    f = Custom(lambda _: _ + 1)
+def test_builder_func():
+    f = Func(lambda _: _ + 1)
     assert f.apply({"_": 1}) == 2
     assert f.apply({"_": 2}) == 3
 
@@ -79,7 +76,7 @@ def test_builder_custom():
         assert kwargs == {"_": 10, "a": 5}
         return -1
 
-    f = Custom(fn)
+    f = Func(fn)
     assert f.apply({"_": 10, "a": 5}) == -1
 
 
@@ -148,7 +145,7 @@ def test_builder_attr():
         def __hash__(self):
             return hash((type(self), self.a, self.b))
 
-    v = Variable("v")
+    v = Var("v")
     b = Attr(v, "b")
     assert b.apply({"v": MyType(1, 2)}) == 2
 
@@ -161,32 +158,32 @@ def test_builder_attr():
 
 
 def test_builder_item():
-    v = Variable("v")
+    v = Var("v")
     b = Item(v, Just(1))
     assert b.apply({"v": [1, 2, 3]}) == 2
 
     b = Item(Just(dict(a=1, b=2)), Just("a"))
     assert b.apply({}) == 1
 
-    name = Variable("name")
+    name = Var("name")
     # test that name can be a deferred as well
     b = Item(v, name)
     assert b.apply({"v": {"a": 1, "b": 2}, "name": "b"}) == 2
 
 
-def test_builder_sequence():
-    b = Sequence([Just(1), Just(2), Just(3)])
+def test_builder_Seq():
+    b = Seq([Just(1), Just(2), Just(3)])
     assert b.apply({}) == [1, 2, 3]
 
-    b = Sequence((Just(1), Just(2), Just(3)))
+    b = Seq((Just(1), Just(2), Just(3)))
     assert b.apply({}) == (1, 2, 3)
 
 
-def test_builder_mapping():
-    b = Mapping({"a": Just(1), "b": Just(2)})
+def test_builder_Map():
+    b = Map({"a": Just(1), "b": Just(2)})
     assert b.apply({}) == {"a": 1, "b": 2}
 
-    b = Mapping({"a": Just(1), "b": Just(2)})
+    b = Map({"a": Just(1), "b": Just(2)})
     assert b.apply({}) == {"a": 1, "b": 2}
 
 
@@ -220,14 +217,14 @@ def test_deferred_builds(value, expected):
 
 def test_deferred_supports_string_arguments():
     # deferred() is applied on all arguments of Call() except the first one and
-    # sequences are transparently handled, the check far sequences was incorrect
+    # Seqs are transparently handled, the check far Seqs was incorrect
     # for strings causing infinite recursion
     b = builder("3.14")
     assert b.apply({}) == "3.14"
 
 
-def test_deferred_variable_getattr():
-    v = Deferred(Variable("v"))
+def test_deferred_Var_getattr():
+    v = Deferred(Var("v"))
     p = v.copy
     assert builder(p) == Attr(v, "copy")
     assert builder(p).apply({"v": [1, 2, 3]})() == [1, 2, 3]
