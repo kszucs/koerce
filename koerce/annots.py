@@ -150,6 +150,7 @@ class Signature:
         func: Any,
         arg_patterns: Sequence[Any] | Mapping[str, Any] = None,
         return_pattern: Any = None,
+        allow_coercion: bool = True,
     ) -> Signature:
         sig = inspect.signature(func)
         hints = get_type_hints(func)
@@ -168,7 +169,7 @@ class Signature:
             if name in arg_patterns:
                 argpat = pattern(arg_patterns[name])
             elif typehint is not EMPTY:
-                argpat = Pattern.from_typehint(typehint)
+                argpat = Pattern.from_typehint(typehint, allow_coercion=allow_coercion)
             else:
                 argpat = _any
 
@@ -183,7 +184,9 @@ class Signature:
         if return_pattern is not None:
             retpat = pattern(return_pattern)
         elif return_typehint is not EMPTY:
-            retpat = Pattern.from_typehint(return_typehint)
+            retpat = Pattern.from_typehint(
+                return_typehint, allow_coercion=allow_coercion
+            )
         else:
             retpat = _any
 
@@ -473,7 +476,10 @@ def annotated(_1=None, _2=None, _3=None, **kwargs):
         func, patterns, return_pattern = _3, _1, _2
 
     sig: Signature = Signature.from_callable(
-        func, arg_patterns=patterns or kwargs, return_pattern=return_pattern
+        func,
+        arg_patterns=patterns or kwargs,
+        return_pattern=return_pattern,
+        allow_coercion=False,
     )
     pat: Pattern = PatternMap(
         {name: param.pattern for name, param in sig.parameters.items()}
@@ -626,6 +632,7 @@ class AnnotableMeta(type):
         initable=None,
         hashable=False,
         immutable=False,
+        allow_coercion=True,
         **kwargs,
     ):
         traits = []
@@ -674,7 +681,9 @@ class AnnotableMeta(type):
                 continue
             dct[name] = Parameter(
                 kind=_POSITIONAL_OR_KEYWORD,
-                pattern=Pattern.from_typehint(typehint, self_qualname=self_qualname),
+                pattern=Pattern.from_typehint(
+                    typehint, allow_coercion=allow_coercion, self_qualname=self_qualname
+                ),
                 default=dct.get(name, EMPTY),
                 typehint=typehint,
             )
@@ -821,6 +830,9 @@ class Annotable(metaclass=AnnotableMeta, initable=False):
         args = (f"{n}={getattr(self, n)!r}" for n in self.__argnames__)
         argstring = ", ".join(args)
         return f"{self.__class__.__name__}({argstring})"
+
+    def __coerce__(self, obj, **kwargs):
+        return self.__class__(**obj)
 
     @property
     def __args__(self) -> tuple[Any, ...]:

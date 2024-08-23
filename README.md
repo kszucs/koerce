@@ -1,5 +1,5 @@
-Python Pattern Matching
------------------------
+Python Pattern Matching and Object Validation
+---------------------------------------------
 
 Reusable pattern matching for Python, implemented in Cython.
 I originally developed this system for the Ibis Project in pure python,

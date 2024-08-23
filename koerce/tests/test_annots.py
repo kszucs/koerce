@@ -28,7 +28,7 @@ from koerce._internal import (
     FrozenDictOf,
     Hashable,
     Immutable,
-    InstanceOf,
+    IsType,
     MappingOf,
     MatchError,
     NoMatchError,
@@ -595,7 +595,7 @@ def test_signature_merge():
 
 
 def test_annotated_function():
-    @annotated(a=InstanceOf(int), b=InstanceOf(int), c=InstanceOf(int))
+    @annotated(a=IsType(int), b=IsType(int), c=IsType(int))
     def test(a, b, c=1):
         return a + b + c
 
@@ -607,7 +607,7 @@ def test_annotated_function():
     with pytest.raises(NoMatchError):
         test(2, 3, c="4")
 
-    @annotated(a=InstanceOf(int))
+    @annotated(a=IsType(int))
     def test(a, b, c=1):
         return (a, b, c)
 
@@ -649,7 +649,7 @@ def test_annotated_function_with_return_type_annotation():
 
 
 def test_annotated_function_with_keyword_overrides():
-    @annotated(b=InstanceOf(float))
+    @annotated(b=IsType(float))
     def test(a: int, b: int, c: int = 1):
         return a + b + c
 
@@ -662,11 +662,11 @@ def test_annotated_function_with_keyword_overrides():
 def test_annotated_function_with_list_overrides():
     with pytest.raises(NoMatchError):
 
-        @annotated([InstanceOf(int), InstanceOf(int), InstanceOf(str)])
+        @annotated([IsType(int), IsType(int), IsType(str)])
         def test(a: int, b: int, c: int = 1):
             return a + b + c
 
-    @annotated([InstanceOf(int), InstanceOf(int), InstanceOf(float)])
+    @annotated([IsType(int), IsType(int), IsType(float)])
     def test(a: int, b: int, c: int = 1.0):
         return a + b + c
 
@@ -679,13 +679,11 @@ def test_annotated_function_with_list_overrides():
 def test_annotated_function_with_list_overrides_and_return_override():
     with pytest.raises(NoMatchError):
 
-        @annotated(
-            [InstanceOf(int), InstanceOf(int), InstanceOf(float)], InstanceOf(float)
-        )
+        @annotated([IsType(int), IsType(int), IsType(float)], IsType(float))
         def test(a: int, b: int, c: int = 1):
             return a + b + c
 
-    @annotated([InstanceOf(int), InstanceOf(int), InstanceOf(float)], InstanceOf(float))
+    @annotated([IsType(int), IsType(int), IsType(float)], IsType(float))
     def test(a: int, b: int, c: int = 1.1):
         return a + b + c
 
@@ -785,36 +783,36 @@ def test_annotated_function_with_varkwargs():
 def test_signature_patterns():
     def func(a: int, b: str) -> str: ...
 
-    sig = Signature.from_callable(func)
-    assert sig.parameters["a"].pattern == InstanceOf(int)
-    assert sig.parameters["b"].pattern == InstanceOf(str)
-    assert sig.return_pattern == InstanceOf(str)
+    sig = Signature.from_callable(func, allow_coercion=False)
+    assert sig.parameters["a"].pattern == IsType(int)
+    assert sig.parameters["b"].pattern == IsType(str)
+    assert sig.return_pattern == IsType(str)
 
     def func(a: int, b: str, c: str = "0") -> str: ...
 
-    sig = Signature.from_callable(func)
-    assert sig.parameters["a"].pattern == InstanceOf(int)
-    assert sig.parameters["b"].pattern == InstanceOf(str)
-    assert sig.parameters["c"].pattern == InstanceOf(str)
-    assert sig.return_pattern == InstanceOf(str)
+    sig = Signature.from_callable(func, allow_coercion=True)
+    assert sig.parameters["a"].pattern == AsType(int)
+    assert sig.parameters["b"].pattern == AsType(str)
+    assert sig.parameters["c"].pattern == AsType(str)
+    assert sig.return_pattern == AsType(str)
 
     def func(a: int, b: str, *args): ...
 
     sig = Signature.from_callable(func)
-    assert sig.parameters["a"].pattern == InstanceOf(int)
-    assert sig.parameters["b"].pattern == InstanceOf(str)
+    assert sig.parameters["a"].pattern == AsType(int)
+    assert sig.parameters["b"].pattern == AsType(str)
     assert sig.parameters["args"].pattern == TupleOf(Anything())
     assert sig.return_pattern == Anything()
 
     def func(a: int, b: str, c: str = "0", *args, **kwargs: int) -> float: ...
 
     sig = Signature.from_callable(func)
-    assert sig.parameters["a"].pattern == InstanceOf(int)
-    assert sig.parameters["b"].pattern == InstanceOf(str)
-    assert sig.parameters["c"].pattern == InstanceOf(str)
+    assert sig.parameters["a"].pattern == AsType(int)
+    assert sig.parameters["b"].pattern == AsType(str)
+    assert sig.parameters["c"].pattern == AsType(str)
     assert sig.parameters["args"].pattern == TupleOf(Anything())
-    assert sig.parameters["kwargs"].pattern == FrozenDictOf(Anything(), InstanceOf(int))
-    assert sig.return_pattern == InstanceOf(float)
+    assert sig.parameters["kwargs"].pattern == FrozenDictOf(Anything(), AsType(int))
+    assert sig.return_pattern == AsType(float)
 
 
 def test_annotated_with_class():
@@ -863,12 +861,12 @@ def test_annotated_with_dataclass():
 ##################################################
 
 
-is_any = InstanceOf(object)
-is_bool = InstanceOf(bool)
-is_float = InstanceOf(float)
-is_int = InstanceOf(int)
-is_str = InstanceOf(str)
-is_list = InstanceOf(list)
+is_any = IsType(object)
+is_bool = IsType(bool)
+is_float = IsType(float)
+is_int = IsType(int)
+is_str = IsType(str)
+is_list = IsType(list)
 
 
 class Op(Annotable):
@@ -876,11 +874,11 @@ class Op(Annotable):
 
 
 class Value(Op):
-    arg = argument(InstanceOf(object))
+    arg = argument(IsType(object))
 
 
 class StringOp(Value):
-    arg = argument(InstanceOf(str))
+    arg = argument(IsType(str))
 
 
 class BetweenSimple(Annotable):
@@ -1202,7 +1200,7 @@ def test_annotable_with_self_typehint():
 
 def test_annotable_with_recursive_generic_type_annotations():
     # testing cons list
-    pattern = Pattern.from_typehint(List[Integer])
+    pattern = Pattern.from_typehint(List[Integer], allow_coercion=True)
     values = ["1", 2.0, 3]
     result = pattern.apply(values, {})
     expected = ConsList(1, ConsList(2, ConsList(3, EmptyList())))
@@ -1215,7 +1213,7 @@ def test_annotable_with_recursive_generic_type_annotations():
         result[3]
 
     # testing cons map
-    pattern = Pattern.from_typehint(Map[Integer, Float])
+    pattern = Pattern.from_typehint(Map[Integer, Float], allow_coercion=True)
     values = {"1": 2, 3: "4.0", 5: 6.0}
     result = pattern.apply(values, {})
     expected = ConsMap((1, 2.0), ConsMap((3, 4.0), ConsMap((5, 6.0), EmptyMap())))
@@ -1516,7 +1514,7 @@ def test_dont_copy_default_argument():
     default = tuple()
 
     class Op(Annotable):
-        arg = optional(InstanceOf(tuple), default=default)
+        arg = optional(IsType(tuple), default=default)
 
     op = Op()
     assert op.arg is default
@@ -1582,13 +1580,13 @@ def test_multiple_inheritance():
         __slots__ = ("_hash",)
 
     class Value(Annotable):
-        arg = argument(InstanceOf(object))
+        arg = argument(IsType(object))
 
     class Reduction(Value):
         pass
 
     class UDF(Value):
-        func = argument(InstanceOf(Callable))
+        func = argument(IsType(Callable))
 
     class UDAF(UDF, Reduction):
         arity = argument(is_int)
