@@ -46,7 +46,9 @@ def var(name):
     return _Variable(name)
 
 
-def match(pat: Pattern, value: Any, context: Context = None) -> Any:
+def match(
+    pat: Pattern, value: Any, context: Context = None, allow_coercion: bool = True
+) -> Any:
     """Match a value against a pattern.
 
     Parameters
@@ -77,7 +79,7 @@ def match(pat: Pattern, value: Any, context: Context = None) -> Any:
     ... ]
 
     """
-    pat = pattern(pat)
+    pat = pattern(pat, allow_coercion=allow_coercion)
     return pat.apply(value, context)
 
 
