@@ -559,6 +559,7 @@ class AnnotableSpec:
     immutable: cython.bint
     signature: Signature
     attributes: dict[str, Attribute]
+    hasattribs: cython.bint
 
     def __init__(
         self,
@@ -573,6 +574,7 @@ class AnnotableSpec:
         self.immutable = immutable
         self.signature = signature
         self.attributes = attributes
+        self.hasattribs = bool(attributes)
 
     @cython.cfunc
     @cython.inline
@@ -596,7 +598,7 @@ class AnnotableSpec:
             this = cls.__new__(cls)
             for name, param in self.signature.parameters.items():
                 __setattr__(this, name, param.pattern.match(bound[name], ctx))
-            if self.attributes:
+            if self.hasattribs:
                 self.init_attributes(this)
             if self.hashable:
                 self.init_precomputes(this)
@@ -776,7 +778,7 @@ class Annotable(metaclass=AnnotableMeta, initable=False):
         spec: AnnotableSpec = self.__spec__
         for name, value in kwargs.items():
             __setattr__(self, name, value)
-        if spec.attributes:
+        if spec.hasattribs:
             spec.init_attributes(self)
         if spec.hashable:
             spec.init_precomputes(self)
