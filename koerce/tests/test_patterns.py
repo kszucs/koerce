@@ -15,34 +15,40 @@ from typing import (
     TypeVar,
     Union,
 )
-
+from datetime import datetime
 import pytest
 from typing_extensions import Self
 
 from koerce import match
+from koerce.utils import FrozenDict
 from koerce._internal import (
     AllOf,
     AnyOf,
     Anything,
+    FrozenDictOf,
     AsType,
+    Custom,
     Call,
     CallableWith,
+    Is,
+    As,
     Capture,
-    CoercedTo,
+    AsCoercible,
     CoercionError,
     Deferred,
     DictOf,
     EqValue,
-    GenericCoercedTo,
-    GenericInstanceOf,
-    GenericInstanceOf1,
-    GenericInstanceOf2,
-    GenericInstanceOfN,
+    AsCoercibleGeneric,
+    IsGeneric,
+    IsGeneric1,
+    IsGeneric2,
+    IsGenericN,
     IdenticalTo,
+    Object,
     If,
-    InstanceOf,
+    IsType,
     IsIn,
-    LazyInstanceOf,
+    IsTypeLazy,
     ListOf,
     MappingOf,
     NoMatch,
@@ -59,6 +65,7 @@ from koerce._internal import (
     Pattern,
     PatternList,
     PatternMap,
+    AsDispatch,
     Replace,
     SequenceOf,
     SomeChunksOf,
@@ -70,28 +77,33 @@ from koerce._internal import (
 )
 
 
-class Min(Pattern):
-    __slots__ = ("min",)
-
-    def __init__(self, min):
-        self.min = min
-
-    def __repr__(self):
-        return f"{self.__class__.__name__}({self.min})"
-
-    def apply(self, value, context):
-        if value >= self.min:
-            return value
-        else:
-            return NoMatch
-
-    def equals(self, other):
-        return self.min == other.min
+@AsDispatch.register(datetime)
+def as_datetime(cls, value: Any) -> datetime:
+    if isinstance(value, datetime):
+        return value
+    elif isinstance(value, str):
+        return datetime.fromisoformat(value)
+    else:
+        raise CoercionError(f"Cannot coerce {value} to datetime")
 
 
-class FrozenDict(dict):
-    def __setitem__(self, key: Any, value: Any) -> None:
-        raise TypeError("Cannot modify a frozen dict")
+# class Min(Pattern):
+#     __slots__ = ("min",)
+
+#     def __init__(self, min):
+#         self.min = min
+
+#     def __repr__(self):
+#         return f"{self.__class__.__name__}({self.min})"
+
+#     def apply(self, value, context):
+#         if value >= self.min:
+#             return value
+#         else:
+#             return NoMatch
+
+#     def equals(self, other):
+#         return self.min == other.min
 
 
 various_values = [1, "1", 1.0, object, False, None]
@@ -177,7 +189,7 @@ def test_equal_to(a, b, expected):
     ],
 )
 def test_instance_of(typ, value, expected):
-    pattern = InstanceOf(typ)
+    pattern = IsType(typ)
     if expected:
         assert pattern.apply(value) is value
     else:
@@ -228,7 +240,7 @@ def test_type_of_with_metaclass():
 def test_lazy_instance_of():
     # pick a rarely used stdlib module
     assert "graphlib" not in sys.modules
-    p = LazyInstanceOf("graphlib.TopologicalSorter")
+    p = IsTypeLazy("graphlib.TopologicalSorter")
     assert "graphlib" not in sys.modules
 
     assert p.apply(1) is NoMatch
@@ -272,41 +284,68 @@ class My3(Generic[T, S, U]):
     c: U
 
 
+class MyCoercible(Generic[T, S]):
+    a: T
+    b: S
+
+    def __init__(self, a: T, b: S):
+        self.a = a
+        self.b = b
+
+    @classmethod
+    def __coerce__(cls, value, T, S):
+        return cls(T(value), S(value))
+
+
+def test_is_instance():
+    assert Is(int) == IsType(int)
+    assert Is(My1[int]) == IsGeneric1(My1[int])
+    assert Is(My2[int, float]) == IsGeneric2(My2[int, float])
+    assert Is(My3[int, float, str]) == IsGenericN(My3[int, float, str])
+    assert Is("pandas.DataFrame") == IsTypeLazy("pandas.DataFrame")
+    assert Is(MyCoercible[int, float]) == IsGeneric(MyCoercible[int, float])
+
+
+def test_as_instance():
+    assert As(int) == AsType(int)
+    assert As(MyCoercible[int, float]) == AsCoercibleGeneric(MyCoercible[int, float])
+
+
 def test_generic_instance_of():
-    p = GenericInstanceOf(My1[int])
-    assert isinstance(p, GenericInstanceOf1)
+    p = IsGeneric(My1[int])
+    assert isinstance(p, IsGeneric1)
 
-    p = GenericInstanceOf(My2[int, float])
-    assert isinstance(p, GenericInstanceOf2)
+    p = IsGeneric(My2[int, float])
+    assert isinstance(p, IsGeneric2)
 
-    p = GenericInstanceOf(My3[int, float, str])
-    assert isinstance(p, GenericInstanceOfN)
+    p = IsGeneric(My3[int, float, str])
+    assert isinstance(p, IsGenericN)
 
 
 def test_generic_instance_of_n():
-    p = GenericInstanceOfN(My[int, Any])
+    p = IsGenericN(My[int, Any])
     assert p.apply(v := My(1, 2, "3")) is v
 
-    p = GenericInstanceOfN(My[int, int])
+    p = IsGenericN(My[int, int])
     assert p.apply(v := My(1, 2, "3")) is v
 
-    p = GenericInstanceOfN(My[int, float])
+    p = IsGenericN(My[int, float])
     assert p.apply(My(1, 2, "3")) is NoMatch
     assert p.apply(v := My(1, 2.0, "3")) is v
 
     MyAlias = My[T, str]
-    p = GenericInstanceOfN(MyAlias[str])
+    p = IsGenericN(MyAlias[str])
     assert p.apply(v := My("1", "2", "3")) is v
 
 
 def test_generic_instance_of_1():
-    p = GenericInstanceOf1(My1[int])
+    p = IsGeneric1(My1[int])
     assert p.apply(v := My1(1)) is v
     assert p.apply(My1(1.0)) is NoMatch
 
 
 def test_generic_instance_of_2():
-    p = GenericInstanceOf2(My2[int, float])
+    p = IsGeneric2(My2[int, float])
     assert p.apply(My2(1, 2)) is NoMatch
     assert p.apply(v := My2(1, 2.0)) is v
 
@@ -342,7 +381,7 @@ def test_coerced_to():
         def __coerce__(cls, other):
             return MyInt(MyInt(other) + 1)
 
-    p = CoercedTo(MyInt)
+    p = AsCoercible(MyInt)
     assert p.apply(1, context={}) == 2
     assert p.apply("1", context={}) == 2
     with pytest.raises(ValueError):
@@ -408,18 +447,18 @@ def test_generic_coerced_to():
     s = Literal("foo", String())
     i = Literal(1, Integer())
 
-    p = GenericInstanceOf(Literal[String])
+    p = IsGeneric(Literal[String])
     assert p.apply(s) is s
     assert p.apply(i) is NoMatch
 
-    p = GenericCoercedTo(Literal[String])
+    p = AsCoercibleGeneric(Literal[String])
     assert p.apply("foo") == s
     assert p.apply(1) == Literal("1", String())
 
 
 def test_not():
-    p = Not(InstanceOf(int))
-    p1 = ~InstanceOf(int)
+    p = Not(IsType(int))
+    p1 = ~IsType(int)
 
     assert p == p1
     assert p.apply(1, context={}) is NoMatch
@@ -429,8 +468,8 @@ def test_not():
 
 
 def test_any_of():
-    p = AnyOf(InstanceOf(int), InstanceOf(str))
-    p1 = InstanceOf(int) | InstanceOf(str)
+    p = AnyOf(IsType(int), IsType(str))
+    p1 = IsType(int) | IsType(str)
 
     assert p == p1
     assert p.apply(1, context={}) == 1
@@ -439,14 +478,14 @@ def test_any_of():
     # assert p.describe() == "an int or a str"
     # assert p.describe(plural=True) == "ints or strs"
 
-    p = AnyOf(InstanceOf(int), InstanceOf(str), InstanceOf(float))
+    p = AnyOf(IsType(int), IsType(str), IsType(float))
     # assert p.describe() == "an int, a str or a float"
 
 
 def test_any_all_of_operator_overloading():
-    is_int = InstanceOf(int)
-    is_str = InstanceOf(str)
-    is_float = InstanceOf(float)
+    is_int = IsType(int)
+    is_str = IsType(str)
+    is_float = IsType(float)
 
     assert (is_int | is_str) == AnyOf(is_int, is_str)
     assert (is_int & is_str) == AllOf(is_int, is_str)
@@ -465,8 +504,8 @@ def test_all_of():
     def negative(_):
         return _ < 0
 
-    p = AllOf(InstanceOf(int), If(negative))
-    p1 = InstanceOf(int) & If(negative)
+    p = AllOf(IsType(int), If(negative))
+    p1 = IsType(int) & If(negative)
 
     assert p == p1
     assert p.apply(1) is NoMatch
@@ -474,7 +513,7 @@ def test_all_of():
     assert p.apply(1.0) is NoMatch
     # assert p.describe() == "an int then a value that satisfies negative()"
 
-    p = AllOf(InstanceOf(int), AsType(float), AsType(str))
+    p = AllOf(IsType(int), AsType(float), AsType(str))
     assert p.apply(1) == "1.0"
     assert p.apply(1.0) is NoMatch
     assert p.apply("1") is NoMatch
@@ -501,7 +540,7 @@ def test_isin():
 
 
 def test_sequence_of():
-    p = SequenceOf(InstanceOf(str), list)
+    p = SequenceOf(IsType(str), list)
     assert p.apply(["foo", "bar"]) == ["foo", "bar"]
     assert p.apply([1, 2]) is NoMatch
     assert p.apply(1) is NoMatch
@@ -509,7 +548,7 @@ def test_sequence_of():
     # assert p.describe() == "a list of strs"
     # assert p.describe(plural=True) == "lists of strs"
 
-    p = SequenceOf(InstanceOf(int), tuple)
+    p = SequenceOf(IsType(int), tuple, allow_coercion=True)
     assert p.apply((1, 2)) == (1, 2)
     assert p.apply([1, 2]) == (1, 2)
     assert p.apply([1, 2, "3"]) is NoMatch
@@ -520,20 +559,29 @@ class CustomDict(dict):
 
 
 def test_mapping_of():
-    p = MappingOf(InstanceOf(str), InstanceOf(int))
+    p = MappingOf(IsType(str), IsType(int))
     assert p.apply({"foo": 1, "bar": 2}, context={}) == {"foo": 1, "bar": 2}
     assert p.apply({"foo": 1, "bar": "baz"}, context={}) is NoMatch
     assert p.apply(1, context={}) is NoMatch
 
-    p = MappingOf(InstanceOf(str), InstanceOf(str), CustomDict)
+    p = MappingOf(IsType(str), IsType(str), CustomDict, allow_coercion=True)
     assert p.apply({"foo": "bar"}, context={}) == CustomDict({"foo": "bar"})
     assert p.apply({"foo": 1}, context={}) is NoMatch
+
+
+def test_frozendict_of():
+    p = FrozenDictOf(IsType(str), IsType(float))  # , allow_coercion=True)
+    assert p == MappingOf(IsType(str), IsType(float), FrozenDict)
+    assert p.apply(FrozenDict({"foo": 1.0, "bar": 2.0})) == FrozenDict(
+        {"foo": 1.0, "bar": 2.0}
+    )
+    assert isinstance(p.apply(FrozenDict({"foo": 1.0, "bar": 2.0})), FrozenDict)
 
 
 def test_capture():
     ctx = {}
 
-    p = Capture("result", InstanceOf(int))
+    p = Capture("result", IsType(int))
     assert p.apply("10", context=ctx) is NoMatch
     assert ctx == {}
 
@@ -547,7 +595,7 @@ def test_capture():
 def test_capture_with_deferred_and_builder(x):
     ctx = {}
 
-    p = Capture(x, InstanceOf(float))
+    p = Capture(x, IsType(float))
 
     assert p.apply(1, context=ctx) is NoMatch
     assert ctx == {}
@@ -560,7 +608,7 @@ def test_none_of():
     def negative(x):
         return x < 0
 
-    p = NoneOf(InstanceOf(int), If(negative))
+    p = NoneOf(IsType(int), If(negative))
     assert p.apply(1.0, context={}) == 1.0
     assert p.apply(-1.0, context={}) is NoMatch
     assert p.apply(1, context={}) is NoMatch
@@ -573,18 +621,18 @@ def test_generic_sequence_of():
         def __coerce__(cls, value, T=...):
             return cls(value)
 
-    p = SequenceOf(InstanceOf(str), MyList)
+    p = SequenceOf(IsType(str), MyList)
     assert p.apply(["foo", "bar"], context={}) == MyList(["foo", "bar"])
     assert p.apply("string", context={}) is NoMatch
 
-    p = SequenceOf(InstanceOf(str), tuple)
-    assert p == SequenceOf(InstanceOf(str), tuple)
+    p = SequenceOf(IsType(str), tuple)
+    assert p == SequenceOf(IsType(str), tuple)
     assert p.apply(("foo", "bar"), context={}) == ("foo", "bar")
     assert p.apply([], context={}) == ()
 
 
 def test_list_of():
-    p = ListOf(InstanceOf(str))
+    p = ListOf(IsType(str))
     assert isinstance(p, SequenceOf)
     assert p.apply(["foo", "bar"], context={}) == ["foo", "bar"]
     assert p.apply([1, 2], context={}) is NoMatch
@@ -594,14 +642,14 @@ def test_list_of():
 
 
 def test_pattern_sequence():
-    p = PatternList((InstanceOf(str), InstanceOf(int), InstanceOf(float)))
+    p = PatternList((IsType(str), IsType(int), IsType(float)))
     assert p.apply(("foo", 1, 1.0), context={}) == ["foo", 1, 1.0]
     assert p.apply(["foo", 1, 1.0], context={}) == ["foo", 1, 1.0]
     assert p.apply(1, context={}) is NoMatch
     # assert p.describe() == "a tuple of (a str, an int, a float)"
     # assert p.describe(plural=True) == "tuples of (a str, an int, a float)"
 
-    p = PatternList((InstanceOf(str),))
+    p = PatternList((IsType(str),))
     assert p.apply(("foo",), context={}) == ["foo"]
     assert p.apply(("foo", "bar"), context={}) is NoMatch
 
@@ -650,58 +698,58 @@ class Baz:
 
 
 def test_object_pattern():
-    p = ObjectOf(Foo, 1, b=2)
+    p = Object(Foo, 1, b=2)
     o = Foo(1, 2)
     assert p.apply(o) is o
     assert p.apply(Foo(1, 3)) is NoMatch
 
-    p = ObjectOf(Foo, 1, lambda x: x * 2)
+    p = Object(Foo, 1, lambda x: x * 2)
     assert p.apply(Foo(1, 2)) == Foo(1, 4)
 
 
 def test_object_of_pattern_unrolling():
-    p = ObjectOf(Foo, 1)
+    p = Object(Foo, 1)
     assert isinstance(p, ObjectOf1)
     assert p.apply(Foo(1, 2)) == Foo(1, 2)
 
-    p = ObjectOf(Foo, 1, 2)
+    p = Object(Foo, 1, 2)
     assert isinstance(p, ObjectOf2)
     assert p.apply(Foo(1, 2)) == Foo(1, 2)
 
-    p = ObjectOf(Baz, 1, 2, 3)
+    p = Object(Baz, 1, 2, 3)
     assert isinstance(p, ObjectOf3)
     assert p.apply(Baz(1, 2, 3, 4, 5)) == Baz(1, 2, 3, 4, 5)
 
-    p = ObjectOf(Baz, 1, 2, 3, 4)
+    p = Object(Baz, 1, 2, 3, 4)
     assert isinstance(p, ObjectOfN)
     assert p.apply(Baz(1, 2, 3, 4, 5)) == Baz(1, 2, 3, 4, 5)
 
 
 def test_object_of_partial_replacement():
-    p = ObjectOf(Baz, Replace(1, 11))
+    p = Object(Baz, Replace(1, 11))
     assert isinstance(p, ObjectOf1)
     assert p.apply(Baz(1, 2, 3, 4, 5)) == Baz(11, 2, 3, 4, 5)
 
-    p = ObjectOf(Baz, Replace(1, 11), Replace(2, 22))
+    p = Object(Baz, Replace(1, 11), Replace(2, 22))
     assert isinstance(p, ObjectOf2)
     assert p.apply(Baz(1, 2, 3, 4, 5)) == Baz(11, 22, 3, 4, 5)
 
-    p = ObjectOf(Baz, Replace(1, 11), Replace(2, 22), Replace(3, 33))
+    p = Object(Baz, Replace(1, 11), Replace(2, 22), Replace(3, 33))
     assert isinstance(p, ObjectOf3)
     assert p.apply(Baz(1, 2, 3, 4, 5)) == Baz(11, 22, 33, 4, 5)
 
-    p = ObjectOf(Baz, Replace(1, 11), Replace(2, 22), Replace(3, 33), Replace(4, 44))
+    p = Object(Baz, Replace(1, 11), Replace(2, 22), Replace(3, 33), Replace(4, 44))
     assert isinstance(p, ObjectOfN)
     assert p.apply(Baz(1, 2, 3, 4, 5)) == Baz(11, 22, 33, 44, 5)
 
-    p = ObjectOf(Foo | Baz, Replace(1, 11))
+    p = Object(Foo | Baz, Replace(1, 11))
     assert isinstance(p, ObjectOfX)
     assert p.apply(Foo(1, 2)) == Foo(11, 2)
     assert p.apply(Baz(1, 2, 3, 4, 5)) == Baz(11, 2, 3, 4, 5)
 
 
 def test_object_pattern_complex_type():
-    p = ObjectOf(Not(Foo), 1, 2)
+    p = Object(Not(Foo), 1, 2)
     o = Bar(1, 2)
 
     # test that the pattern isn't changing the input object if none of
@@ -710,7 +758,7 @@ def test_object_pattern_complex_type():
     assert p.apply(Foo(1, 2)) is NoMatch
     assert p.apply(Bar(1, 3)) is NoMatch
 
-    p = ObjectOf(Not(Foo), 1, b=2)
+    p = Object(Not(Foo), 1, b=2)
     assert p.apply(Bar(1, 2)) is NoMatch
 
 
@@ -723,10 +771,10 @@ def test_object_pattern_from_instance_of():
             self.b = b
 
     p = pattern(MyType)
-    assert p == InstanceOf(MyType)
+    assert p == IsType(MyType)
 
     p_call = p(1, 2)
-    assert p_call == ObjectOf(MyType, 1, 2)
+    assert p_call == Object(MyType, 1, 2)
 
 
 def test_object_pattern_from_coerced_to():
@@ -742,9 +790,9 @@ def test_object_pattern_from_coerced_to():
             a, b = other
             return cls(a, b)
 
-    p = CoercedTo(MyCoercibleType)
+    p = AsCoercible(MyCoercibleType)
     p_call = p(1, 2)
-    assert p_call == ObjectOfX(p, 1, 2)
+    assert p_call == ObjectOfX(p, (1, 2), {})
 
 
 def test_object_pattern_matching_order():
@@ -765,7 +813,7 @@ def test_object_pattern_matching_order():
             )
 
     a = Var("a")
-    p = ObjectOf(Foo, Capture(a, InstanceOf(int)), c=a)
+    p = Object(Foo, Capture(a, IsType(int)), c=a)
 
     assert p.apply(Foo(1, 2, 3)) is NoMatch
     assert p.apply(Foo(1, 2, 1)) == Foo(1, 2, 1)
@@ -777,16 +825,16 @@ def test_object_pattern_matching_dictionary_field():
     c = Bar(1, None)
     d = Bar(1, {"foo": 1})
 
-    pattern = ObjectOf(Bar, 1, d={})
+    pattern = Object(Bar, 1, d={})
     assert pattern.apply(a) is a
     assert pattern.apply(b) is b
     assert pattern.apply(c) is NoMatch
 
-    pattern = ObjectOf(Bar, 1, d=None)
+    pattern = Object(Bar, 1, d=None)
     assert pattern.apply(a) is NoMatch
     assert pattern.apply(c) is c
 
-    pattern = ObjectOf(Bar, 1, d={"foo": 1})
+    pattern = Object(Bar, 1, d={"foo": 1})
     assert pattern.apply(a) is NoMatch
     assert pattern.apply(d) is d
 
@@ -797,21 +845,21 @@ def test_object_pattern_requires_its_arguments_to_match():
 
     msg = "The type to match has fewer `__match_args__`"
     with pytest.raises(ValueError, match=msg):
-        ObjectOf(Empty, 1)
+        Object(Empty, 1)
 
     # if the type matcher (first argument of Object) receives a generic pattern
     # instead of an explicit type, the validation above cannot occur, so test
     # the the pattern still doesn't match when it requires more positional
     # arguments than the object `__match_args__` has
-    pattern = ObjectOf(InstanceOf(Empty), "a")
+    pattern = Object(IsType(Empty), "a")
     assert pattern.apply(Empty()) is NoMatch
 
-    pattern = ObjectOf(InstanceOf(Empty), a="a")
+    pattern = Object(IsType(Empty), a="a")
     assert pattern.apply(Empty()) is NoMatch
 
 
 def test_pattern_list():
-    p = PatternList([1, 2, InstanceOf(int), SomeOf(...)])
+    p = PatternList([1, 2, IsType(int), SomeOf(...)])
     assert p.apply([1, 2, 3, 4, 5], context={}) == [1, 2, 3, 4, 5]
     assert p.apply([1, 2, 3, 4, 5, 6], context={}) == [1, 2, 3, 4, 5, 6]
     assert p.apply([1, 2, 3, 4], context={}) == [1, 2, 3, 4]
@@ -827,10 +875,8 @@ def test_pattern_list():
 
 
 def test_pattern_list_from_tuple_typehint():
-    p = Pattern.from_typehint(tuple[str, int, float])
-    assert p == PatternList(
-        [InstanceOf(str), InstanceOf(int), InstanceOf(float)], type=tuple
-    )
+    p = Pattern.from_typehint(tuple[str, int, float], allow_coercion=False)
+    assert p == PatternList([IsType(str), IsType(int), IsType(float)], type_=tuple)
     assert p.apply(["foo", 1, 2.0], context={}) == ("foo", 1, 2.0)
     assert p.apply(("foo", 1, 2.0), context={}) == ("foo", 1, 2.0)
     assert p.apply(["foo", 1], context={}) is NoMatch
@@ -839,16 +885,22 @@ def test_pattern_list_from_tuple_typehint():
     class MyTuple(tuple):
         pass
 
-    p = Pattern.from_typehint(MyTuple[int, bool])
-    assert p == PatternList([InstanceOf(int), InstanceOf(bool)], type=MyTuple)
+    p = Pattern.from_typehint(MyTuple[int, bool], allow_coercion=False)
+    assert p == PatternList([IsType(int), IsType(bool)], type_=MyTuple)
     assert p.apply([1, True], context={}) == MyTuple([1, True])
     assert p.apply(MyTuple([1, True]), context={}) == MyTuple([1, True])
     assert p.apply([1, 2], context={}) is NoMatch
 
+    p = Pattern.from_typehint(tuple[str, int, float], allow_coercion=True)
+    assert p.apply(["foo", 1, 2.0], context={}) == ("foo", 1, 2.0)
+    assert p.apply(["foo", 1, 2], context={}) == ("foo", 1, 2.0)
+    assert p.apply(["foo", 1], context={}) is NoMatch
+    assert p.apply(["foo", 1, 2.0, 3.0], context={}) is NoMatch
+
 
 def test_pattern_list_unpack():
-    integer = pattern(int)
-    floating = pattern(float)
+    integer = pattern(int, allow_coercion=False)
+    floating = pattern(float, allow_coercion=False)
 
     assert match([1, 2, *floating], [1, 2, 3]) is NoMatch
     assert match([1, 2, *floating], [1, 2, 3.0]) == [1, 2, 3.0]
@@ -868,22 +920,22 @@ def test_matching():
     assert match("foo", "foo") == "foo"
     assert match("foo", "bar") is NoMatch
 
-    assert match(InstanceOf(int), 1) == 1
-    assert match(InstanceOf(int), "foo") is NoMatch
+    assert match(IsType(int), 1) == 1
+    assert match(IsType(int), "foo") is NoMatch
 
-    assert Capture("pi", InstanceOf(float)) == "pi" @ InstanceOf(float)
-    assert Capture("pi", InstanceOf(float)) == "pi" @ InstanceOf(float)
+    assert Capture("pi", IsType(float)) == "pi" @ IsType(float)
+    assert Capture("pi", IsType(float)) == "pi" @ IsType(float)
 
-    assert match(Capture("pi", InstanceOf(float)), 3.14, ctx := {}) == 3.14
+    assert match(Capture("pi", IsType(float)), 3.14, ctx := {}) == 3.14
     assert ctx == {"pi": 3.14}
-    assert match("pi" @ InstanceOf(float), 3.14, ctx := {}) == 3.14
-    assert ctx == {"pi": 3.14}
-
-    assert match("pi" @ InstanceOf(float), 3.14, ctx := {}) == 3.14
+    assert match("pi" @ IsType(float), 3.14, ctx := {}) == 3.14
     assert ctx == {"pi": 3.14}
 
-    assert match(InstanceOf(int) | InstanceOf(float), 3) == 3
-    assert match(InstanceOf(object) & InstanceOf(float), 3.14) == 3.14
+    assert match("pi" @ IsType(float), 3.14, ctx := {}) == 3.14
+    assert ctx == {"pi": 3.14}
+
+    assert match(IsType(int) | IsType(float), 3) == 3
+    assert match(IsType(object) & IsType(float), 3.14) == 3.14
 
 
 # def test_replace_passes_matched_value_as_underscore():
@@ -901,23 +953,23 @@ def test_matching():
 def test_replace_in_nested_object_pattern():
     # simple example using reference to replace a value
     b = Var("b")
-    p = ObjectOf(Foo, 1, b=Replace(Anything(), b))
+    p = Object(Foo, 1, b=Replace(Anything(), b))
     f = p.apply(Foo(1, 2), {"b": 3})
     assert f.a == 1
     assert f.b == 3
 
     # nested example using reference to replace a value
     d = Var("d")
-    p = ObjectOf(Foo, 1, b=ObjectOf(Bar, 2, d=Replace(Anything(), d)))
+    p = Object(Foo, 1, b=Object(Bar, 2, d=Replace(Anything(), d)))
     g = p.apply(Foo(1, Bar(2, 3)), {"d": 4})
     assert g.b.c == 2
     assert g.b.d == 4
 
     # nested example using reference to replace a value with a captured value
-    p = ObjectOf(
+    p = Object(
         Foo,
         1,
-        b=Replace(ObjectOf(Bar, 2, d="d" @ Anything()), lambda _, d: Foo(-1, b=d)),
+        b=Replace(Object(Bar, 2, d="d" @ Anything()), lambda _, d: Foo(-1, b=d)),
     )
     h = p.apply(Foo(1, Bar(2, 3)), {})
     assert isinstance(h, Foo)
@@ -926,7 +978,7 @@ def test_replace_in_nested_object_pattern():
     assert h.b.b == 3
 
     d = Var("d")
-    p = ObjectOf(Foo, 1, b=ObjectOf(Bar, 2, d=d @ Anything()) >> Call(Foo, -1, b=d))
+    p = Object(Foo, 1, b=Object(Bar, 2, d=d @ Anything()) >> Call(Foo, -1, b=d))
     h1 = p.apply(Foo(1, Bar(2, 3)), {})
     assert isinstance(h1, Foo)
     assert h1.a == 1
@@ -947,15 +999,13 @@ def test_replace_using_deferred():
     x = Deferred(Var("x"))
     y = Deferred(Var("y"))
 
-    pat = ObjectOf(Foo, Capture(x), b=Capture(y)) >> Call(Foo, x, b=y)
+    pat = Object(Foo, Capture(x), b=Capture(y)) >> Call(Foo, x, b=y)
     assert pat.apply(Foo(1, 2)) == Foo(1, 2)
 
-    pat = ObjectOf(Foo, Capture(x), b=Capture(y)) >> Call(Foo, x, b=(y + 1) * x)
+    pat = Object(Foo, Capture(x), b=Capture(y)) >> Call(Foo, x, b=(y + 1) * x)
     assert pat.apply(Foo(2, 3)) == Foo(2, 8)
 
-    pat = ObjectOf(Foo, "x" @ Anything(), y @ InstanceOf(Bar)) >> Call(
-        Foo, x, b=y.c + y.d
-    )
+    pat = Object(Foo, "x" @ Anything(), y @ IsType(Bar)) >> Call(Foo, x, b=y.c + y.d)
     assert pat.apply(Foo(1, Bar(2, 3))) == Foo(1, 5)
 
 
@@ -1001,7 +1051,7 @@ def test_matching_sequence_with_captures():
         0,
         1,
         "ints" @ SomeOf(int),
-        SomeOf("last_float" @ InstanceOf(float)),
+        SomeOf("last_float" @ IsType(float)),
         6,
     ]
     v = [0, 1, 2, 3, 4.0, 5.0, 6]
@@ -1028,7 +1078,7 @@ def test_matching_sequence_remaining():
 def test_matching_sequence_complicated():
     pat = [
         1,
-        "a" @ SomeOf(InstanceOf(int) & If(lambda x: x < 10)),
+        "a" @ SomeOf(IsType(int) & If(lambda x: x < 10)),
         4,
         "b" @ SomeOf(...),
         8,
@@ -1113,37 +1163,37 @@ def test_pattern_sequence_with_nested_some_of():
 @pytest.mark.parametrize(
     ("pattern", "value", "expected"),
     [
-        (InstanceOf(bool), True, True),
-        (InstanceOf(str), "foo", "foo"),
-        (InstanceOf(int), 8, 8),
-        (InstanceOf(int), 1, 1),
-        (InstanceOf(float), 1.0, 1.0),
+        (IsType(bool), True, True),
+        (IsType(str), "foo", "foo"),
+        (IsType(int), 8, 8),
+        (IsType(int), 1, 1),
+        (IsType(float), 1.0, 1.0),
         (IsIn({"a", "b"}), "a", "a"),
         (IsIn({"a": 1, "b": 2}), "a", "a"),
         (IsIn(["a", "b"]), "a", "a"),
         (IsIn(("a", "b")), "b", "b"),
         (IsIn({"a", "b", "c"}), "c", "c"),
-        (TupleOf(InstanceOf(int)), (1, 2, 3), (1, 2, 3)),
-        (PatternList((InstanceOf(int), InstanceOf(str))), (1, "a"), [1, "a"]),
-        (ListOf(InstanceOf(str)), ["a", "b"], ["a", "b"]),
-        (AnyOf(InstanceOf(str), InstanceOf(int)), "foo", "foo"),
-        (AnyOf(InstanceOf(str), InstanceOf(int)), 7, 7),
+        (TupleOf(IsType(int)), (1, 2, 3), (1, 2, 3)),
+        (PatternList((IsType(int), IsType(str))), (1, "a"), [1, "a"]),
+        (ListOf(IsType(str)), ["a", "b"], ["a", "b"]),
+        (AnyOf(IsType(str), IsType(int)), "foo", "foo"),
+        (AnyOf(IsType(str), IsType(int)), 7, 7),
         (
-            AllOf(InstanceOf(int), If(lambda v: v >= 3), If(lambda v: v >= 8)),
+            AllOf(IsType(int), If(lambda v: v >= 3), If(lambda v: v >= 8)),
             10,
             10,
         ),
         (
-            MappingOf(InstanceOf(str), InstanceOf(int)),
+            MappingOf(IsType(str), IsType(int)),
             {"a": 1, "b": 2},
             {"a": 1, "b": 2},
         ),
-        (AnyOf(InstanceOf(str)) | InstanceOf(int), 7, 7),
-        (AllOf(InstanceOf(int)) & InstanceOf(int), 7, 7),
-        (InstanceOf(int) | AnyOf(InstanceOf(str)), 7, 7),
-        (InstanceOf(int) & AllOf(InstanceOf(int)), 7, 7),
-        (AnyOf(InstanceOf(str)) | AnyOf(InstanceOf(int)), 7, 7),
-        (AllOf(InstanceOf(int)) & AllOf(InstanceOf(int)), 7, 7),
+        (AnyOf(IsType(str)) | IsType(int), 7, 7),
+        (AllOf(IsType(int)) & IsType(int), 7, 7),
+        (IsType(int) | AnyOf(IsType(str)), 7, 7),
+        (IsType(int) & AllOf(IsType(int)), 7, 7),
+        (AnyOf(IsType(str)) | AnyOf(IsType(int)), 7, 7),
+        (AllOf(IsType(int)) & AllOf(IsType(int)), 7, 7),
     ],
 )
 def test_various_patterns(pattern, value, expected):
@@ -1153,21 +1203,21 @@ def test_various_patterns(pattern, value, expected):
 @pytest.mark.parametrize(
     ("pattern", "value"),
     [
-        (InstanceOf(bool), "foo"),
-        (InstanceOf(str), True),
-        (InstanceOf(int), 8.1),
-        (Min(3), 2),
-        (InstanceOf(int), None),
-        (InstanceOf(float), 1),
+        (IsType(bool), "foo"),
+        (IsType(str), True),
+        (IsType(int), 8.1),
+        # (Min(3), 2),
+        (IsType(int), None),
+        (IsType(float), 1),
         (IsIn(["a", "b"]), "c"),
         (IsIn({"a", "b"}), "c"),
         (IsIn({"a": 1, "b": 2}), "d"),
-        (TupleOf(InstanceOf(int)), (1, 2.0, 3)),
-        (ListOf(InstanceOf(str)), ["a", "b", None]),
-        # (AnyOf(InstanceOf(str), Min(4)), 3.14),
+        (TupleOf(IsType(int)), (1, 2.0, 3)),
+        (ListOf(IsType(str)), ["a", "b", None]),
+        # (AnyOf(IsType(str), Min(4)), 3.14),
         # (AnyOf(InstanceOf(str), Min(10)), 9),
         # (AllOf(InstanceOf(int), Min(3), Min(8)), 7),
-        (DictOf(InstanceOf(int), InstanceOf(str)), {"a": 1, "b": 2}),
+        (DictOf(IsType(int), IsType(str)), {"a": 1, "b": 2}),
     ],
 )
 def test_various_not_matching_patterns(pattern, value):
@@ -1189,64 +1239,100 @@ def test_pattern_decorator():
 @pytest.mark.parametrize(
     ("annot", "expected"),
     [
-        (int, InstanceOf(int)),
-        (str, InstanceOf(str)),
-        (bool, InstanceOf(bool)),
-        (Optional[int], Option(InstanceOf(int))),
-        (Optional[Union[str, int]], Option(AnyOf(InstanceOf(str), InstanceOf(int)))),
-        (Union[int, str], AnyOf(InstanceOf(int), InstanceOf(str))),
-        (Annotated[int, Min(3)], AllOf(InstanceOf(int), Min(3))),
-        (list[int], SequenceOf(InstanceOf(int), list)),
+        (int, IsType(int)),
+        (str, IsType(str)),
+        (bool, IsType(bool)),
+        (Optional[int], Option(IsType(int))),
+        (Optional[Union[str, int]], Option(AnyOf(IsType(str), IsType(int)))),
+        (Union[int, str], AnyOf(IsType(int), IsType(str))),
+        # (Annotated[int, Min(3)], AllOf(IsType(int), Min(3))),
+        (list[int], SequenceOf(IsType(int), list, allow_coercion=False)),
         (
             tuple[int, float, str],
-            PatternList(
-                (InstanceOf(int), InstanceOf(float), InstanceOf(str)), type=tuple
-            ),
+            PatternList((IsType(int), IsType(float), IsType(str)), type_=tuple),
         ),
-        (tuple[int, ...], TupleOf(InstanceOf(int))),
+        (tuple[int, ...], TupleOf(IsType(int))),
         (
             dict[str, float],
-            DictOf(InstanceOf(str), InstanceOf(float)),
+            DictOf(IsType(str), IsType(float), allow_coercion=False),
         ),
-        (FrozenDict[str, int], MappingOf(InstanceOf(str), InstanceOf(int), FrozenDict)),
+        (
+            FrozenDict[str, int],
+            MappingOf(IsType(str), IsType(int), FrozenDict, allow_coercion=False),
+        ),
         (Literal["alpha", "beta", "gamma"], IsIn(("alpha", "beta", "gamma"))),
         (
             Callable[[str, int], str],
-            CallableWith((InstanceOf(str), InstanceOf(int)), InstanceOf(str)),
+            CallableWith((IsType(str), IsType(int)), IsType(str)),
         ),
         # (Callable, InstanceOf(CallableABC)),
     ],
 )
-def test_pattern_from_typehint(annot, expected):
-    assert Pattern.from_typehint(annot) == expected
+def test_pattern_from_typehint_no_coercion(annot, expected):
+    assert Pattern.from_typehint(annot, allow_coercion=False) == expected
+
+
+@pytest.mark.parametrize(
+    ("annot", "expected"),
+    [
+        (int, AsType(int)),
+        (str, AsType(str)),
+        (bool, AsType(bool)),
+        (Optional[int], Option(AsType(int))),
+        (Optional[Union[str, int]], Option(AnyOf(AsType(str), AsType(int)))),
+        (Union[int, str], AnyOf(AsType(int), AsType(str))),
+        # (Annotated[int, Min(3)], AllOf(AsType(int), Min(3))),
+        (list[int], SequenceOf(AsType(int), list)),
+        (
+            tuple[int, float, str],
+            PatternList((AsType(int), AsType(float), AsType(str)), type_=tuple),
+        ),
+        (tuple[int, ...], TupleOf(AsType(int))),
+        (
+            dict[str, float],
+            DictOf(AsType(str), AsType(float)),
+        ),
+        (FrozenDict[str, int], MappingOf(AsType(str), AsType(int), FrozenDict)),
+        (Literal["alpha", "beta", "gamma"], IsIn(("alpha", "beta", "gamma"))),
+        (
+            Callable[[str, int], str],
+            CallableWith((AsType(str), AsType(int)), AsType(str)),
+        ),
+    ],
+)
+def test_pattern_from_typehint_with_coercion(annot, expected):
+    assert Pattern.from_typehint(annot, allow_coercion=True) == expected
 
 
 @pytest.mark.skipif(sys.version_info < (3, 10), reason="requires python3.10 or higher")
 def test_pattern_from_typehint_uniontype():
     # uniontype marks `type1 | type2` annotations and it's different from
     # Union[type1, type2]
-    validator = Pattern.from_typehint(str | int | float)
-    assert validator == AnyOf(InstanceOf(str), InstanceOf(int), InstanceOf(float))
+    validator = Pattern.from_typehint(str | int | float, allow_coercion=False)
+    assert validator == AnyOf(IsType(str), IsType(int), IsType(float))
+
+    validator = Pattern.from_typehint(str | int | float, allow_coercion=True)
+    assert validator == AnyOf(AsType(str), AsType(int), AsType(float))
 
 
-def test_pattern_from_typehint_disable_coercion():
+def test_pattern_from_coercible_typehint_disable_coercion():
     class MyFloat(float):
         @classmethod
         def __coerce__(cls, obj):
             return cls(float(obj))
 
     p = Pattern.from_typehint(MyFloat, allow_coercion=True)
-    assert isinstance(p, CoercedTo)
+    assert isinstance(p, AsCoercible)
 
     p = Pattern.from_typehint(MyFloat, allow_coercion=False)
-    assert isinstance(p, InstanceOf)
+    assert isinstance(p, IsType)
 
 
 def test_pattern_from_self_typehint():
     p = Pattern.from_typehint(
         List[Self], self_qualname="koerce.tests.test_patterns.MyClass"
     )
-    assert p == SequenceOf(LazyInstanceOf("koerce.tests.test_patterns.MyClass"), list)
+    assert p == SequenceOf(IsTypeLazy("koerce.tests.test_patterns.MyClass"), list)
     result = p.apply([MyClass(), MyClass()])
     assert isinstance(result, list)
     assert isinstance(result[0], MyClass)
@@ -1289,13 +1375,19 @@ class PlusTwo(PlusOne):
 
 
 def test_pattern_from_coercible_protocol():
-    s = Pattern.from_typehint(PlusOne)
-    assert s.apply(1, context={}) == PlusOne(2)
-    assert s.apply(10, context={}) == PlusOne(11)
+    s = Pattern.from_typehint(PlusOne, allow_coercion=True)
+    assert s == AsCoercible(PlusOne)
+    assert s.apply(1) == PlusOne(2)
+    assert s.apply(10) == PlusOne(11)
+
+    s = Pattern.from_typehint(PlusOneRaise, allow_coercion=False)
+    assert s == IsType(PlusOneRaise)
+    assert s.apply(PlusOneRaise(10), context={}) == PlusOneRaise(10)
+    assert s.apply(1) is NoMatch
 
 
 def test_pattern_coercible_bypass_coercion():
-    s = Pattern.from_typehint(PlusOneRaise)
+    s = Pattern.from_typehint(PlusOneRaise, allow_coercion=True)
     # bypass coercion since it's already an instance of SomethingRaise
     assert s.apply(PlusOneRaise(10), context={}) == PlusOneRaise(10)
     # but actually call __coerce__ if it's not an instance
@@ -1304,8 +1396,8 @@ def test_pattern_coercible_bypass_coercion():
 
 
 def test_pattern_coercible_checks_type():
-    s = Pattern.from_typehint(PlusOneChild)
-    v = Pattern.from_typehint(PlusTwo)
+    s = Pattern.from_typehint(PlusOneChild, allow_coercion=True)
+    v = Pattern.from_typehint(PlusTwo, allow_coercion=True)
 
     assert s.apply(1, context={}) == PlusOneChild(2)
 
@@ -1320,20 +1412,20 @@ class DoubledList(list[T]):
 
 
 def test_pattern_coercible_sequence_type():
-    s = Pattern.from_typehint(Sequence[PlusOne])
+    s = Pattern.from_typehint(Sequence[PlusOne], allow_coercion=True)
     # with pytest.raises(TypeError, match=r"Sequence\(\) takes no arguments"):
     assert s.apply([1, 2, 3], context={}) == [PlusOne(2), PlusOne(3), PlusOne(4)]
 
-    s = Pattern.from_typehint(list[PlusOne])
-    assert s == SequenceOf(CoercedTo(PlusOne), list)
+    s = Pattern.from_typehint(list[PlusOne], allow_coercion=True)
+    assert s == SequenceOf(AsCoercible(PlusOne), list)
     assert s.apply([1, 2, 3], context={}) == [PlusOne(2), PlusOne(3), PlusOne(4)]
 
-    s = Pattern.from_typehint(tuple[PlusOne, ...])
-    assert s == TupleOf(CoercedTo(PlusOne))
+    s = Pattern.from_typehint(tuple[PlusOne, ...], allow_coercion=True)
+    assert s == TupleOf(AsCoercible(PlusOne))
     assert s.apply([1, 2, 3], context={}) == (PlusOne(2), PlusOne(3), PlusOne(4))
 
-    s = Pattern.from_typehint(DoubledList[PlusOne])
-    assert s == SequenceOf(CoercedTo(PlusOne), DoubledList)
+    s = Pattern.from_typehint(DoubledList[PlusOne], allow_coercion=True)
+    assert s == SequenceOf(AsCoercible(PlusOne), DoubledList)
     assert s.apply([1, 2, 3], context={}) == DoubledList(
         [PlusOne(2), PlusOne(3), PlusOne(4), PlusOne(2), PlusOne(3), PlusOne(4)]
     )
@@ -1357,25 +1449,38 @@ def test_pattern_function():
     assert pattern(True) == EqValue(True)
 
     # plain types are converted to InstanceOf patterns
-    assert pattern(int) == InstanceOf(int)
+    assert pattern(int) == IsType(int)
+    assert pattern(int, allow_coercion=False) == IsType(int)
+    assert pattern(int, allow_coercion=True) == AsType(int)
     # no matter whether the type implements the coercible protocol or not
-    assert pattern(MyNegativeInt) == InstanceOf(MyNegativeInt)
+    assert pattern(MyNegativeInt) == IsType(MyNegativeInt)
+    assert pattern(MyNegativeInt, allow_coercion=True) == AsCoercible(MyNegativeInt)
+    assert pattern(MyNegativeInt, allow_coercion=False) == IsType(MyNegativeInt)
 
     # generic types are converted to GenericInstanceOf patterns
-    assert pattern(Box[int]) == GenericInstanceOf(Box[int])
+    assert pattern(Box[int]) == IsGeneric(Box[int])
+    assert pattern(Box[int], allow_coercion=False) == IsGeneric(Box[int])
     # no matter whethwe the origin type implements the coercible protocol or not
-    assert pattern(Box[MyNegativeInt]) == GenericInstanceOf(Box[MyNegativeInt])
+    assert pattern(Box[MyNegativeInt]) == IsGeneric(Box[MyNegativeInt])
 
     # sequence typehints are converted to the appropriate sequence checkers
-    assert pattern(List[int]) == ListOf(InstanceOf(int))
+    assert pattern(List[int], allow_coercion=True) == ListOf(
+        AsType(int), allow_coercion=True
+    )
+    assert pattern(List[int], allow_coercion=False) == ListOf(
+        IsType(int), allow_coercion=False
+    )
 
     # spelled out sequences construct a more advanced pattern sequence
-    assert pattern([int, str, 1]) == PatternList(
-        [InstanceOf(int), InstanceOf(str), EqValue(1)]
+    assert pattern([int, str, 1], allow_coercion=True) == PatternList(
+        [AsType(int), AsType(str), EqValue(1)]
+    )
+    assert pattern([int, str, 1], allow_coercion=False) == PatternList(
+        [IsType(int), IsType(str), EqValue(1)]
     )
 
     # matching deferred to user defined functions
-    # assert pattern(f) == Custom(f)
+    assert pattern(f) == Custom(f)
 
     # matching mapping values
     assert pattern({"a": 1, "b": 2}) == PatternMap({"a": EqValue(1), "b": EqValue(2)})
@@ -1397,7 +1502,7 @@ def test_callable_with():
     def func_with_required_keyword_only_kwargs(*, c):
         return c
 
-    p = CallableWith([InstanceOf(int), InstanceOf(str)])
+    p = CallableWith([IsType(int), IsType(str)])
     assert p.apply(10, context={}) is NoMatch
 
     msg = "Callable has mandatory keyword-only arguments which cannot be specified"
@@ -1405,22 +1510,22 @@ def test_callable_with():
         p.apply(func_with_required_keyword_only_kwargs, context={})
 
     # Callable has more positional arguments than expected
-    p = CallableWith([InstanceOf(int)] * 2)
+    p = CallableWith([IsType(int)] * 2)
     assert p.apply(func_with_kwargs, context={}) is func_with_kwargs
 
     # Callable has less positional arguments than expected
-    p = CallableWith([InstanceOf(int)] * 4)
+    p = CallableWith([IsType(int)] * 4)
     assert p.apply(func_with_kwargs, context={}) is NoMatch
 
-    p = CallableWith([InstanceOf(int)] * 4, InstanceOf(int))
+    p = CallableWith([IsType(int)] * 4, IsType(int))
     wrapped = p.apply(func_with_args, context={})
     assert wrapped(1, 2, 3, 4) == 10
 
-    p = CallableWith([InstanceOf(int), InstanceOf(str)], InstanceOf(str))
+    p = CallableWith([IsType(int), IsType(str)], IsType(str))
     wrapped = p.apply(func, context={})
     assert wrapped(1, "st") == "1st"
 
-    p = CallableWith([InstanceOf(int)])
+    p = CallableWith([IsType(int)])
     wrapped = p.apply(func_with_optional_keyword_only_kwargs, context={})
     assert wrapped(1) == 2
 
@@ -1452,10 +1557,24 @@ def test_instance_of_with_metaclass():
     my_instance = Class()
     my_other_instance = OtherClass()
 
-    assert InstanceOf(Class).apply(my_instance, context={}) == my_instance
-    assert (
-        InstanceOf(OtherClass).apply(my_other_instance, context={}) == my_other_instance
-    )
+    assert IsType(Class).apply(my_instance, context={}) == my_instance
+    assert IsType(OtherClass).apply(my_other_instance, context={}) == my_other_instance
 
-    assert InstanceOf(Class).apply(my_other_instance, context={}) == NoMatch
-    assert InstanceOf(OtherClass).apply(my_instance, context={}) == NoMatch
+    assert IsType(Class).apply(my_other_instance, context={}) == NoMatch
+    assert IsType(OtherClass).apply(my_instance, context={}) == NoMatch
+
+
+def test_as_dispatch():
+    p = AsDispatch(datetime)
+    assert p.apply(datetime(2021, 1, 1)) == datetime(2021, 1, 1)
+    assert p.apply("2021-01-01") == datetime(2021, 1, 1)
+    assert p.apply(3.14) is NoMatch
+
+    p = pattern(datetime)
+    assert p.apply(datetime(2021, 1, 1)) == datetime(2021, 1, 1)
+    assert p.apply("2021-01-01") is NoMatch
+
+    p = pattern(datetime, allow_coercion=True)
+    assert p.apply(datetime(2021, 1, 1)) == datetime(2021, 1, 1)
+    assert p.apply("2021-01-01") == datetime(2021, 1, 1)
+    assert p.apply(3.14) is NoMatch

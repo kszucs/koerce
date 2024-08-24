@@ -5,6 +5,9 @@ import sys
 import typing
 from collections.abc import Hashable
 from typing import Any, Optional, TypeVar
+from typing_extensions import Self
+
+_SpecialForm = type(Self)
 
 K = TypeVar("K")
 V = TypeVar("V")
@@ -165,6 +168,13 @@ def get_type_boundvars(typ: Any) -> dict[TypeVar, tuple[str, type]]:
         )
 
     return result
+
+
+_hint_types = (type, TypeVar, _SpecialForm)
+
+
+def is_typehint(obj: Any) -> bool:
+    return isinstance(obj, _hint_types) or get_type_origin(obj)
 
 
 class FrozenDict(dict[K, V], Hashable):

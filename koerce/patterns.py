@@ -13,25 +13,24 @@ from typing import (
     Optional,
     TypeVar,
     Union,
+    ClassVar,
 )
 
 import cython
 from typing_extensions import GenericMeta, Self, get_original_bases
+from contextlib import suppress
 
 # TODO(kszucs): would be nice to cimport Signature and Builder
 from .builders import Builder, Deferred, Var, builder
 from .utils import (
     RewindableIterator,
     frozendict,
+    is_typehint,
     get_type_args,
     get_type_boundvars,
     get_type_origin,
     get_type_params,
 )
-
-
-class CoercionError(Exception):
-    pass
 
 
 Context = dict[str, Any]
@@ -48,6 +47,12 @@ class NoMatchError(MatchError):
     pass
 
 
+@cython.final
+@cython.cclass
+class CoercionError(MatchError):
+    pass
+
+
 @cython.cclass
 class NoMatch:
     def __init__(self):
@@ -58,7 +63,7 @@ class NoMatch:
 class Pattern:
     @staticmethod
     def from_typehint(
-        annot: Any, allow_coercion: bool = True, self_qualname: Optional[str] = None
+        annot: Any, allow_coercion: bool = False, self_qualname: Optional[str] = None
     ) -> Pattern:
         """Construct a validator from a python type annotation.
 
@@ -91,15 +96,17 @@ class Pattern:
             elif annot is Self:
                 if self_qualname is None:
                     raise ValueError("self_qualname must be provided for Self typehint")
-                return LazyInstanceOf(self_qualname)
+                return IsTypeLazy(self_qualname)
             elif isinstance(annot, type):
                 # the typehint is a concrete type (e.g. int, str, etc.)
-                if allow_coercion and hasattr(annot, "__coerce__"):
-                    # the type implements the Coercible protocol so we try to
-                    # coerce the value to the given type rather than checking
-                    return CoercedTo(annot)
-                else:
-                    return InstanceOf(annot)
+                if allow_coercion:
+                    if hasattr(annot, "__coerce__"):
+                        return AsCoercible(annot)
+                    with suppress(TypeError):
+                        return AsType(annot)
+                    with suppress(TypeError):
+                        return AsDispatch(annot)
+                return IsType(annot)
             elif isinstance(annot, TypeVar):
                 # if the typehint is a type variable we try to construct a
                 # validator from it only if it is covariant and has a bound
@@ -116,9 +123,9 @@ class Pattern:
                 return EqValue(annot)
             elif isinstance(annot, str):
                 # for strings and forward references we check in a lazy way
-                return LazyInstanceOf(annot)
+                return IsTypeLazy(annot)
             elif isinstance(annot, ForwardRef):
-                return LazyInstanceOf(annot.__forward_arg__)
+                return IsTypeLazy(annot.__forward_arg__)
             else:
                 raise TypeError(f"Cannot create validator from annotation {annot!r}")
         # elif origin is CoercedTo:
@@ -134,24 +141,18 @@ class Pattern:
                 # the typehint is Optional[*rest] which is equivalent to
                 # Union[*rest, None], so we construct an Option pattern
                 if len(rest) == 1:
-                    inner = Pattern.from_typehint(rest[0], **options)
+                    inner = rest[0]
                 else:
-                    variants = [Pattern.from_typehint(arg, **options) for arg in rest]
-                    inner = AnyOf(*variants)
-                return Option(inner)
+                    inner = AnyOf(*rest, **options)
+                return Option(inner, **options)
             else:
                 # the typehint is Union[*args] so we construct an AnyOf pattern
-                variants = [Pattern.from_typehint(arg, **options) for arg in args]
-                return AnyOf(*variants)
+                return AnyOf(*args, **options)
         elif origin is Annotated:
             # the Annotated typehint can be used to add extra validation logic
             # to the typehint, e.g. Annotated[int, Positive], the first argument
             # is used for isinstance checks, the rest are applied in conjunction
-            annot, *extras = args
-            return AllOf(
-                Pattern.from_typehint(annot, **options),
-                *extras,
-            )
+            return AllOf(*args, **options)
         elif origin is Callable:
             # the Callable typehint is used to annotate functions, e.g. the
             # following typehint annotates a function that takes two integers
@@ -159,44 +160,37 @@ class Pattern:
             if args:
                 # callable with args and return typehints construct a special
                 # CallableWith validator
-                arg_hints, return_hint = args
-                arg_patterns = [
-                    Pattern.from_typehint(arg, **options) for arg in arg_hints
-                ]
-                return_pattern = Pattern.from_typehint(return_hint, **options)
-                return CallableWith(arg_patterns, return_pattern)
+                return CallableWith(*args, **options)
             else:
                 # in case of Callable without args we check for the Callable
                 # protocol only
-                return InstanceOf(Callable)
+                return IsType(Callable)
         elif issubclass(origin, tuple):
             # construct validators for the tuple elements, but need to treat
             # variadic tuples differently, e.g. tuple[int, ...] is a variadic
             # tuple of integers, while tuple[int] is a tuple with a single int
             first, *rest = args
             if rest == [Ellipsis]:
-                return TupleOf(Pattern.from_typehint(first, **options))
+                return TupleOf(first, **options)
             else:
-                patterns = [Pattern.from_typehint(arg, **options) for arg in args]
-                return PatternList(patterns, origin)
+                return PatternList(args, origin, **options)
         elif issubclass(origin, Sequence):
             # construct a validator for the sequence elements where all elements
             # must be of the same type, e.g. Sequence[int] is a sequence of ints
-            value_inner = Pattern.from_typehint(args[0], **options)
-            return SequenceOf(value_inner, type_=origin)
+            return SequenceOf(args[0], type_=origin, **options)
         elif issubclass(origin, Mapping):
             # construct a validator for the mapping keys and values, e.g.
             # Mapping[str, int] is a mapping with string keys and int values
-            key_inner = Pattern.from_typehint(args[0], **options)
-            value_inner = Pattern.from_typehint(args[1], **options)
-            return MappingOf(key_inner, value_inner, origin)
+            return MappingOf(args[0], args[1], type_=origin, **options)
         elif isinstance(origin, GenericMeta):
             # construct a validator for the generic type, see the specific
             # Generic* validators for more details
-            if allow_coercion and hasattr(origin, "__coerce__") and args:
-                return GenericCoercedTo(annot)
-            else:
-                return GenericInstanceOf(annot)
+            if allow_coercion:
+                if hasattr(origin, "__coerce__") and args:
+                    return AsCoercibleGeneric(annot)
+                with suppress(TypeError):
+                    return AsType(annot)
+            return IsGeneric(annot)
         else:
             raise TypeError(
                 f"Cannot create validator from annotation {annot!r} {origin!r}"
@@ -207,7 +201,7 @@ class Pattern:
             context = {}
         try:
             return self.match(value, context)
-        except NoMatchError:
+        except MatchError:
             return NoMatch
 
     @cython.cfunc
@@ -332,7 +326,7 @@ class IdenticalTo(Pattern):
         self.value = value
 
     def __repr__(self) -> str:
-        return f"IdenticalTo({self.value!r})"
+        return f"{self.__class__.__name__}({self.value!r})"
 
     def equals(self, other: IdenticalTo) -> bool:
         return self.value == other.value
@@ -363,7 +357,7 @@ class EqValue(Pattern):
         self.value = value
 
     def __repr__(self) -> str:
-        return f"EqValue({self.value!r})"
+        return f"{self.__class__.__name__}({self.value!r})"
 
     def equals(self, other: EqValue) -> bool:
         return self.value == other.value
@@ -395,7 +389,7 @@ class EqDeferred(Pattern):
         self.value = builder(value)
 
     def __repr__(self) -> str:
-        return f"EqDeferred({self.value!r})"
+        return f"{self.__class__.__name__}({self.value!r})"
 
     @cython.cfunc
     def match(self, value, ctx: Context):
@@ -418,7 +412,7 @@ class TypeOf(Pattern):
         self.type_ = type_
 
     def __repr__(self) -> str:
-        return f"TypeOf({self.type_!r})"
+        return f"{self.__class__.__name__}({self.type_!r})"
 
     def equals(self, other: TypeOf) -> bool:
         return self.type_ == other.type_
@@ -432,9 +426,14 @@ class TypeOf(Pattern):
             raise NoMatchError()
 
 
+@cython.ccall
+def Is(type_: Any):
+    return Pattern.from_typehint(type_, allow_coercion=False)
+
+
 @cython.final
 @cython.cclass
-class InstanceOf(Pattern):
+class IsType(Pattern):
     # performance doesn't seem to be affected:
     # https://github.com/kszucs/koerce/pull/6#discussion_r1705833034
     type_: Any
@@ -443,12 +442,12 @@ class InstanceOf(Pattern):
         self.type_ = type_
 
     def __repr__(self) -> str:
-        return f"InstanceOf({self.type_!r})"
+        return f"{self.__class__.__name__}({self.type_!r})"
 
     def __call__(self, *args, **kwargs):
-        return ObjectOf(self.type_, *args, **kwargs)
+        return ObjectOf(self.type_, args, kwargs)
 
-    def equals(self, other: InstanceOf) -> bool:
+    def equals(self, other: IsType) -> bool:
         return self.type_ == other.type_
 
     @cython.cfunc
@@ -462,7 +461,7 @@ class InstanceOf(Pattern):
 
 @cython.final
 @cython.cclass
-class LazyInstanceOf(Pattern):
+class IsTypeLazy(Pattern):
     qualname: str
     package: str
     type_: Any
@@ -482,12 +481,12 @@ class LazyInstanceOf(Pattern):
         self.type_ = None
 
     def __repr__(self) -> str:
-        return f"LazyInstanceOf({self.qualname!r})"
+        return f"{self.__class__.__name__}({self.qualname!r})"
 
     def __call__(self, *args, **kwargs):
-        return ObjectOf(self, *args, **kwargs)
+        return ObjectOf(self, args, kwargs)
 
-    def equals(self, other: LazyInstanceOf) -> bool:
+    def equals(self, other: IsTypeLazy) -> bool:
         return self.qualname == other.qualname
 
     @cython.cfunc
@@ -522,20 +521,20 @@ class LazyInstanceOf(Pattern):
 
 
 @cython.ccall
-def GenericInstanceOf(typ) -> Pattern:
+def IsGeneric(typ) -> Pattern:
     # TODO(kszucs): could be expressed using ObjectOfN..
     nparams: int = len(get_type_params(typ))
     if nparams == 1:
-        return GenericInstanceOf1(typ)
+        return IsGeneric1(typ)
     elif nparams == 2:
-        return GenericInstanceOf2(typ)
+        return IsGeneric2(typ)
     else:
-        return GenericInstanceOfN(typ)
+        return IsGenericN(typ)
 
 
 @cython.final
 @cython.cclass
-class GenericInstanceOf1(Pattern):
+class IsGeneric1(Pattern):
     origin: Any
     name1: str
     pattern1: Pattern
@@ -547,12 +546,12 @@ class GenericInstanceOf1(Pattern):
         self.pattern1 = Pattern.from_typehint(type1, allow_coercion=False)
 
     def __repr__(self) -> str:
-        return f"GenericInstanceOf1({self.origin!r}, name1={self.name1!r}, pattern1={self.pattern1!r})"
+        return f"{self.__class__.__name__}({self.origin!r}, name1={self.name1!r}, pattern1={self.pattern1!r})"
 
     def __call__(self, *args, **kwargs):
-        return ObjectOf(self, *args, **kwargs)
+        return ObjectOf(self, args, kwargs)
 
-    def equals(self, other: GenericInstanceOf1) -> bool:
+    def equals(self, other: IsGeneric1) -> bool:
         return (
             self.origin == other.origin
             and self.name1 == other.name1
@@ -572,7 +571,7 @@ class GenericInstanceOf1(Pattern):
 
 @cython.final
 @cython.cclass
-class GenericInstanceOf2(Pattern):
+class IsGeneric2(Pattern):
     origin: Any
     name1: str
     name2: str
@@ -587,12 +586,12 @@ class GenericInstanceOf2(Pattern):
         self.pattern2 = Pattern.from_typehint(type2, allow_coercion=False)
 
     def __repr__(self) -> str:
-        return f"GenericInstanceOf2({self.origin!r}, name1={self.name1!r}, pattern1={self.pattern1!r}, name2={self.name2!r}, pattern2={self.pattern2!r})"
+        return f"{self.__class__.__name__}({self.origin!r}, name1={self.name1!r}, pattern1={self.pattern1!r}, name2={self.name2!r}, pattern2={self.pattern2!r})"
 
     def __call__(self, *args, **kwargs):
         return ObjectOf(self, *args, **kwargs)
 
-    def equals(self, other: GenericInstanceOf2) -> bool:
+    def equals(self, other: IsGeneric2) -> bool:
         return (
             self.origin == other.origin
             and self.name1 == other.name1
@@ -617,7 +616,7 @@ class GenericInstanceOf2(Pattern):
 
 @cython.final
 @cython.cclass
-class GenericInstanceOfN(Pattern):
+class IsGenericN(Pattern):
     origin: Any
     fields: dict[str, Pattern]
 
@@ -630,12 +629,12 @@ class GenericInstanceOfN(Pattern):
             self.fields[name] = Pattern.from_typehint(type_, allow_coercion=False)
 
     def __repr__(self) -> str:
-        return f"GenericInstanceOfN({self.origin!r}, fields={self.fields!r})"
+        return f"{self.__class__.__name__}({self.origin!r}, fields={self.fields!r})"
 
     def __call__(self, *args, **kwargs):
-        return ObjectOf(self, *args, **kwargs)
+        return ObjectOf(self, args, kwargs)
 
-    def equals(self, other: GenericInstanceOfN) -> bool:
+    def equals(self, other: IsGenericN) -> bool:
         return self.origin == other.origin and self.fields == other.fields
 
     @cython.cfunc
@@ -661,7 +660,7 @@ class SubclassOf(Pattern):
         self.type_ = type_
 
     def __repr__(self) -> str:
-        return f"SubclassOf({self.type_!r})"
+        return f"{self.__class__.__name__}({self.type_!r})"
 
     def equals(self, other: SubclassOf) -> bool:
         return self.type_ == other.type_
@@ -675,31 +674,31 @@ class SubclassOf(Pattern):
             raise NoMatchError()
 
 
-# @cython.ccall
-# def As(type_: Any) -> Pattern:
-#     origin = get_type_origin(type_)
-#     if origin is None:
-#         if hasattr(type_, "__coerce__"):
-#             return CoercedTo(type_)
-#         else:
-#             return AsType(type_)
-#     else:
-#         if hasattr(origin, "__coerce__"):
-#             return GenericCoercedTo(type_)
-#         else:
-#             return AsType(type_)
+@cython.ccall
+def As(type_: Any) -> Pattern:
+    return Pattern.from_typehint(type_, allow_coercion=True)
 
 
 @cython.final
 @cython.cclass
 class AsType(Pattern):
     type_: Any
+    _registry: ClassVar[tuple[type, ...]] = (
+        int,
+        str,
+        float,
+        tuple,
+        list,
+        dict,
+    )
 
     def __init__(self, type_: Any):
+        if not issubclass(type_, self._registry):
+            raise TypeError(f"Doesn't know how to coerce {type_}")
         self.type_ = type_
 
     def __repr__(self) -> str:
-        return f"AsType({self.type_!r})"
+        return f"{self.__class__.__name__}({self.type_!r})"
 
     def equals(self, other: AsType) -> bool:
         return self.type_ == other.type_
@@ -708,6 +707,9 @@ class AsType(Pattern):
     def match(self, value, ctx: Context):
         if isinstance(value, self.type_):
             return value
+        elif value is None:
+            raise NoMatchError()
+
         try:
             return self.type_(value)
         except ValueError:
@@ -716,7 +718,58 @@ class AsType(Pattern):
 
 @cython.final
 @cython.cclass
-class CoercedTo(Pattern):
+class AsDispatch(Pattern):
+    _registry: ClassVar[dict[type, Any]] = {}
+
+    type_: Any
+    func: Any
+
+    def __init__(self, type_: Any):
+        self.type_ = type_
+        self.func = self.lookup(type_)
+
+    @classmethod
+    def register(cls, type_: Any):
+        def decorator(func):
+            cls._registry[type_] = func
+            return func
+
+        return decorator
+
+    @classmethod
+    def lookup(cls, type_: Any):
+        if not isinstance(type_, type):
+            raise TypeError(f"{type_} is not a type")
+
+        for klass in type_.__mro__:
+            try:
+                impl = cls._registry[klass]
+            except KeyError:
+                pass
+            else:
+                if type_ is not klass:
+                    # Cache implementation
+                    cls._registry[type_] = impl
+                return impl
+
+        raise TypeError(f"Could not find a custom coerce implementation for {type_}")
+
+    def __repr__(self) -> str:
+        return f"{self.__class__.__name__}()"
+
+    def equals(self, other: AsDispatch) -> bool:
+        return self.type_ == other.type_ and self.func == other.func
+
+    @cython.cfunc
+    def match(self, value, ctx: Context):
+        if isinstance(value, self.type_):
+            return value
+        return self.func(self.type_, value)
+
+
+@cython.final
+@cython.cclass
+class AsCoercible(Pattern):
     type_: Any
 
     def __init__(self, type_: Any):
@@ -725,12 +778,12 @@ class CoercedTo(Pattern):
         self.type_ = type_
 
     def __repr__(self) -> str:
-        return f"CoercedTo({self.type_!r})"
+        return f"{self.__class__.__name__}({self.type_!r})"
 
     def __call__(self, *args, **kwargs):
-        return ObjectOf(self, *args, **kwargs)
+        return ObjectOf(self, args, kwargs)
 
-    def equals(self, other: CoercedTo) -> bool:
+    def equals(self, other: AsCoercible) -> bool:
         return self.type_ == other.type_
 
     @cython.cfunc
@@ -748,7 +801,7 @@ class CoercedTo(Pattern):
 
 @cython.final
 @cython.cclass
-class GenericCoercedTo(Pattern):
+class AsCoercibleGeneric(Pattern):
     origin: Any
     params: dict[str, type]
     checker: Pattern
@@ -757,7 +810,7 @@ class GenericCoercedTo(Pattern):
         self.origin = get_type_origin(typ)
         if not hasattr(self.origin, "__coerce__"):
             raise TypeError(f"{self.origin} does not implement the Coercible protocol")
-        self.checker = GenericInstanceOf(typ)
+        self.checker = IsGeneric(typ)
 
         # get all type parameters for the generic class in its type hierarchy
         self.params = {}
@@ -766,12 +819,12 @@ class GenericCoercedTo(Pattern):
         self.params.update(get_type_params(typ))
 
     def __repr__(self) -> str:
-        return f"GenericCoercedTo({self.origin!r}, params={self.params!r})"
+        return f"{self.__class__.__name__}({self.origin!r}, params={self.params!r})"
 
     def __call__(self, *args: Any, **kwds: Any) -> Any:
-        return ObjectOf(self, *args, **kwds)
+        return ObjectOf(self, args, kwds)
 
-    def equals(self, other: GenericCoercedTo) -> bool:
+    def equals(self, other: AsCoercibleGeneric) -> bool:
         return self.origin == other.origin and self.params == other.params
 
     @cython.cfunc
@@ -791,11 +844,11 @@ class GenericCoercedTo(Pattern):
 class Not(Pattern):
     inner: Pattern
 
-    def __init__(self, inner):
-        self.inner = pattern(inner)
+    def __init__(self, inner, **options):
+        self.inner = pattern(inner, **options)
 
     def __repr__(self) -> str:
-        return f"Not({self.inner!r})"
+        return f"{self.__class__.__name__}({self.inner!r})"
 
     def equals(self, other: Not) -> bool:
         return self.inner == other.inner
@@ -815,11 +868,11 @@ class Not(Pattern):
 class AnyOf(Pattern):
     inners: list[Pattern]
 
-    def __init__(self, *inners: Pattern):
-        self.inners = [pattern(inner) for inner in inners]
+    def __init__(self, *inners: Pattern, **options):
+        self.inners = [pattern(inner, **options) for inner in inners]
 
     def __repr__(self) -> str:
-        return f"AnyOf({self.inners!r})"
+        return f"{self.__class__.__name__}({self.inners!r})"
 
     def equals(self, other: AnyOf) -> bool:
         return self.inners == other.inners
@@ -857,11 +910,11 @@ class AnyOf(Pattern):
 class AllOf(Pattern):
     inners: list[Pattern]
 
-    def __init__(self, *inners: Pattern):
-        self.inners = [pattern(inner) for inner in inners]
+    def __init__(self, *inners: Pattern, **options):
+        self.inners = [pattern(inner, **options) for inner in inners]
 
     def __repr__(self) -> str:
-        return f"AllOf({self.inners!r})"
+        return f"{self.__class__.__name__}({self.inners!r})"
 
     def equals(self, other: AllOf) -> bool:
         return self.inners == other.inners
@@ -911,14 +964,14 @@ class Option(Pattern):
     pattern: Pattern
     default: Any
 
-    def __init__(self, pat, default=None):
+    def __init__(self, pat, default=None, **options):
         self.default = default
-        self.pattern = pattern(pat)
+        self.pattern = pattern(pat, **options)
         if isinstance(self.pattern, Option):
             self.pattern = cython.cast(Option, self.pattern).pattern
 
     def __repr__(self) -> str:
-        return f"Option({self.pattern!r}, default={self.default!r})"
+        return f"{self.__class__.__name__}({self.pattern!r}, default={self.default!r})"
 
     def equals(self, other: Option) -> bool:
         return self.pattern == other.pattern and self.default == other.default
@@ -959,7 +1012,7 @@ class IfFunction(Pattern):
         self.predicate = predicate
 
     def __repr__(self) -> str:
-        return f"IfFunction({self.predicate!r})"
+        return f"{self.__class__.__name__}({self.predicate!r})"
 
     def equals(self, other: IfFunction) -> bool:
         return self.predicate == other.predicate
@@ -990,7 +1043,7 @@ class IfDeferred(Pattern):
         self.builder = builder(obj)
 
     def __repr__(self) -> str:
-        return f"If({self.builder!r})"
+        return f"{self.__class__.__name__}({self.builder!r})"
 
     def equals(self, other: IfDeferred) -> bool:
         return self.builder == other.builder
@@ -1024,7 +1077,7 @@ class IsIn(Pattern):
         self.haystack = frozenset(haystack)
 
     def __repr__(self) -> str:
-        return f"IsIn({self.haystack})"
+        return f"{self.__class__.__name__}({self.haystack})"
 
     def equals(self, other: IsIn) -> bool:
         return self.haystack == other.haystack
@@ -1058,20 +1111,12 @@ class SequenceOf(Pattern):
     item: Pattern
     type_: Pattern
 
-    def __init__(self, item, type_=list):
-        self.item = pattern(item)
-        if hasattr(type_, "__coerce__"):
-            self.type_ = CoercedTo(type_)
-        else:
-            try:
-                type_([])
-            except TypeError:
-                self.type_ = AsType(list)
-            else:
-                self.type_ = AsType(type_)
+    def __init__(self, item: Any, type_: Any = list, **options):
+        self.item = pattern(item, **options)
+        self.type_ = As(type_)
 
     def __repr__(self) -> str:
-        return f"SequenceOf({self.item!r}, type_={self.type_!r})"
+        return f"{self.__class__.__name__}({self.item!r}, type_={self.type_!r})"
 
     def equals(self, other: SequenceOf) -> bool:
         return self.item == other.item and self.type_ == other.type_
@@ -1092,12 +1137,12 @@ class SequenceOf(Pattern):
         return self.type_.match(result, ctx)
 
 
-def ListOf(item) -> Pattern:
-    return SequenceOf(item, list)
+def ListOf(item, **options) -> Pattern:
+    return SequenceOf(item, type_=list, **options)
 
 
-def TupleOf(item) -> Pattern:
-    return SequenceOf(item, tuple)
+def TupleOf(item, **options) -> Pattern:
+    return SequenceOf(item, type_=tuple, **options)
 
 
 @cython.final
@@ -1121,21 +1166,15 @@ class MappingOf(Pattern):
     value: Pattern
     type_: Pattern
 
-    def __init__(self, key: Pattern, value: Pattern, type_=dict):
-        self.key = pattern(key)
-        self.value = pattern(value)
-        if hasattr(type_, "__coerce__"):
-            self.type_ = CoercedTo(type_)
-        else:
-            try:
-                type_({})
-            except TypeError:
-                self.type_ = AsType(dict)
-            else:
-                self.type_ = AsType(type_)
+    def __init__(self, key: Any, value: Any, type_: Any = dict, **options):
+        self.key = pattern(key, **options)
+        self.value = pattern(value, **options)
+        self.type_ = As(type_)
 
     def __repr__(self) -> str:
-        return f"MappingOf({self.key!r}, {self.value!r}, {self.type_!r})"
+        return (
+            f"{self.__class__.__name__}({self.key!r}, {self.value!r}, {self.type_!r})"
+        )
 
     def equals(self, other: MappingOf) -> bool:
         return (
@@ -1158,12 +1197,12 @@ class MappingOf(Pattern):
         return self.type_.match(result, ctx)
 
 
-def DictOf(key, value) -> Pattern:
-    return MappingOf(key, value, dict)
+def DictOf(key, value, **options) -> Pattern:
+    return MappingOf(key, value, type_=dict, **options)
 
 
-def FrozenDictOf(key, value) -> Pattern:
-    return MappingOf(key, value, frozendict)
+def FrozenDictOf(key, value, **options) -> Pattern:
+    return MappingOf(key, value, type_=frozendict, **options)
 
 
 @cython.final
@@ -1184,7 +1223,7 @@ class Custom(Pattern):
         self.func = func
 
     def __repr__(self) -> str:
-        return f"Custom({self.func!r})"
+        return f"{self.__class__.__name__}({self.func!r})"
 
     def equals(self, other: Custom) -> bool:
         return self.func == other.func
@@ -1211,7 +1250,7 @@ class Capture(Pattern):
     key: str
     what: Pattern
 
-    def __init__(self, key: Any, what=_any):
+    def __init__(self, key: Any, what=_any, **options):
         if isinstance(key, (Deferred, Builder)):
             key = builder(key)
             if isinstance(key, Var):
@@ -1219,10 +1258,10 @@ class Capture(Pattern):
             else:
                 raise TypeError("Only variables can be used as capture keys")
         self.key = key
-        self.what = pattern(what)
+        self.what = pattern(what, **options)
 
     def __repr__(self) -> str:
-        return f"Capture({self.key!r}, {self.what!r})"
+        return f"{self.__class__.__name__}({self.key!r}, {self.what!r})"
 
     def equals(self, other: Capture) -> bool:
         return self.key == other.key and self.what == other.what
@@ -1251,12 +1290,12 @@ class Replace(Pattern):
     searcher: Pattern
     replacer: Builder
 
-    def __init__(self, searcher, replacer):
-        self.searcher = pattern(searcher)
+    def __init__(self, searcher, replacer, **options):
+        self.searcher = pattern(searcher, **options)
         self.replacer = builder(replacer, allow_custom=True)
 
     def __repr__(self) -> str:
-        return f"Replace({self.searcher!r}, {self.replacer!r})"
+        return f"{self.__class__.__name__}({self.searcher!r}, {self.replacer!r})"
 
     @cython.cfunc
     def match(self, value, ctx: Context):
@@ -1269,7 +1308,11 @@ class Replace(Pattern):
         return self.replacer.apply(ctx)
 
 
-def ObjectOf(type_, *args, **kwargs) -> Pattern:
+def Object(type_, *args, **kwargs) -> Pattern:
+    return ObjectOf(type_, args, kwargs)
+
+
+def ObjectOf(type_, args, kwargs, **options) -> Pattern:
     if isinstance(type_, type):
         if len(type_.__match_args__) < len(args):
             raise ValueError(
@@ -1279,15 +1322,15 @@ def ObjectOf(type_, *args, **kwargs) -> Pattern:
         fields = dict(zip(type_.__match_args__, args))
         fields.update(kwargs)
         if len(fields) == 1:
-            return ObjectOf1(type_, **fields)
+            return ObjectOf1(type_, fields, **options)
         elif len(fields) == 2:
-            return ObjectOf2(type_, **fields)
+            return ObjectOf2(type_, fields, **options)
         elif len(fields) == 3:
-            return ObjectOf3(type_, **fields)
+            return ObjectOf3(type_, fields, **options)
         else:
-            return ObjectOfN(type_, **fields)
+            return ObjectOfN(type_, fields, **options)
     else:
-        return ObjectOfX(type_, *args, **kwargs)
+        return ObjectOfX(type_, args, kwargs, **options)
 
 
 @cython.cfunc
@@ -1302,6 +1345,7 @@ def _reconstruct(value: Any, changed: dict[str, Any]):
     return type(value)(**changed)
 
 
+# TODO(kszucs): pass **options to pattern everywhere
 @cython.final
 @cython.cclass
 class ObjectOf1(Pattern):
@@ -1309,14 +1353,14 @@ class ObjectOf1(Pattern):
     field1: str
     pattern1: Pattern
 
-    def __init__(self, type_: Any, **kwargs):
-        assert len(kwargs) == 1
+    def __init__(self, type_: Any, fields, **options):
+        assert len(fields) == 1
         self.type_ = type_
-        ((self.field1, pattern1),) = kwargs.items()
-        self.pattern1 = pattern(pattern1)
+        ((self.field1, pattern1),) = fields.items()
+        self.pattern1 = pattern(pattern1, **options)
 
     def __repr__(self) -> str:
-        return f"ObjectOf1({self.type_!r}, {self.field1!r}={self.pattern1!r})"
+        return f"{self.__class__.__name__}({self.type_!r}, {self.field1!r}={self.pattern1!r})"
 
     def equals(self, other: ObjectOf1) -> bool:
         return (
@@ -1349,12 +1393,12 @@ class ObjectOf2(Pattern):
     pattern1: Pattern
     pattern2: Pattern
 
-    def __init__(self, type_: Any, **kwargs):
-        assert len(kwargs) == 2
+    def __init__(self, type_: Any, fields, **options):
+        assert len(fields) == 2
         self.type_ = type_
-        (self.field1, pattern1), (self.field2, pattern2) = kwargs.items()
-        self.pattern1 = pattern(pattern1)
-        self.pattern2 = pattern(pattern2)
+        (self.field1, pattern1), (self.field2, pattern2) = fields.items()
+        self.pattern1 = pattern(pattern1, **options)
+        self.pattern2 = pattern(pattern2, **options)
 
     def __repr__(self) -> str:
         return f"ObjectOf2({self.type_!r}, {self.field1!r}={self.pattern1!r}, {self.field2!r}={self.pattern2!r})"
@@ -1397,15 +1441,15 @@ class ObjectOf3(Pattern):
     pattern2: Pattern
     pattern3: Pattern
 
-    def __init__(self, type_: Any, **kwargs):
-        assert len(kwargs) == 3
+    def __init__(self, type_: Any, fields, **options):
+        assert len(fields) == 3
         self.type_ = type_
         (self.field1, pattern1), (self.field2, pattern2), (self.field3, pattern3) = (
-            kwargs.items()
+            fields.items()
         )
-        self.pattern1 = pattern(pattern1)
-        self.pattern2 = pattern(pattern2)
-        self.pattern3 = pattern(pattern3)
+        self.pattern1 = pattern(pattern1, **options)
+        self.pattern2 = pattern(pattern2, **options)
+        self.pattern3 = pattern(pattern3, **options)
 
     def __repr__(self) -> str:
         return f"ObjectOf3({self.type_!r}, {self.field1!r}={self.pattern1!r}, {self.field2!r}={self.pattern2!r}, {self.field3!r}={self.pattern3!r})"
@@ -1468,12 +1512,12 @@ class ObjectOfN(Pattern):
     type_: Any
     fields: dict[str, Pattern]
 
-    def __init__(self, type_: Any, **kwargs):
+    def __init__(self, type_: Any, fields, **options):
         self.type_ = type_
-        self.fields = {k: pattern(v) for k, v in kwargs.items()}
+        self.fields = {k: pattern(v, **options) for k, v in fields.items()}
 
     def __repr__(self) -> str:
-        return f"ObjectOfN({self.type_!r}, {self.fields!r})"
+        return f"{self.__class__.__name__}({self.type_!r}, {self.fields!r})"
 
     def equals(self, other: ObjectOfN) -> bool:
         return self.type_ == other.type_ and self.fields == other.fields
@@ -1504,13 +1548,15 @@ class ObjectOfX(Pattern):
     args: list[Pattern]
     kwargs: dict[str, Pattern]
 
-    def __init__(self, type_, *args, **kwargs):
-        self.type_ = pattern(type_)
-        self.args = [pattern(arg) for arg in args]
-        self.kwargs = {k: pattern(v) for k, v in kwargs.items()}
+    def __init__(self, type_, args, kwargs, **options):
+        self.type_ = pattern(type_, **options)
+        self.args = [pattern(arg, **options) for arg in args]
+        self.kwargs = {k: pattern(v, **options) for k, v in kwargs.items()}
 
     def __repr__(self) -> str:
-        return f"ObjectOfX({self.type_!r}, {self.args!r}, {self.kwargs!r})"
+        return (
+            f"{self.__class__.__name__}({self.type_!r}, {self.args!r}, {self.kwargs!r})"
+        )
 
     def equals(self, other: ObjectOfX) -> bool:
         return (
@@ -1555,12 +1601,12 @@ class CallableWith(Pattern):
     args: list[Pattern]
     return_: Pattern
 
-    def __init__(self, args, return_=_any):
-        self.args = [pattern(arg) for arg in args]
-        self.return_ = pattern(return_)
+    def __init__(self, args, return_=_any, **options):
+        self.args = [pattern(arg, **options) for arg in args]
+        self.return_ = pattern(return_, **options)
 
     def __repr__(self) -> str:
-        return f"CallableWith({self.args!r}, return_={self.return_!r})"
+        return f"{self.__class__.__name__}({self.args!r}, return_={self.return_!r})"
 
     def equals(self, other: CallableWith) -> bool:
         return self.args == other.args and self.return_ == other.return_
@@ -1638,7 +1684,7 @@ class WithLength(Pattern):
         self.at_most = at_most
 
     def __repr__(self) -> str:
-        return f"WithLength(at_least={self.at_least}, at_most={self.at_most})"
+        return f"{self.__class__.__name__}(at_least={self.at_least}, at_most={self.at_most})"
 
     def equals(self, other: WithLength) -> bool:
         return self.at_least == other.at_least and self.at_most == other.at_most
@@ -1673,7 +1719,7 @@ class SomeItemsOf(Pattern):
         self.length = WithLength(**kwargs)
 
     def __repr__(self) -> str:
-        return f"SomeItemsOf({self.pattern!r})"
+        return f"{self.__class__.__name__}({self.pattern!r})"
 
     def equals(self, other: SomeItemsOf) -> bool:
         return self.pattern == other.pattern
@@ -1703,7 +1749,7 @@ class SomeChunksOf(Pattern):
         self.length = WithLength(**kwargs)
 
     def __repr__(self) -> str:
-        return f"SomeChunksOf({self.pattern!r}, {self.delimiter!r})"
+        return f"{self.__class__.__name__}({self.pattern!r}, {self.delimiter!r})"
 
     def equals(self, other: SomeChunksOf) -> bool:
         return self.pattern == other.pattern and self.delimiter == other.delimiter
@@ -1737,17 +1783,17 @@ def _maybe_unwrap_capture(obj):
         return obj
 
 
-def PatternList(patterns, type=list):
+def PatternList(patterns, type_=list, **options) -> Pattern:
     if patterns == ():
         return EqValue(patterns)
 
-    patterns = tuple(map(pattern, patterns))
+    patterns = [pattern(p, **options) for p in patterns]
     for pat in patterns:
         pat = _maybe_unwrap_capture(pat)
         if isinstance(pat, (SomeItemsOf, SomeChunksOf)):
-            return VariadicPatternList(patterns, type)
+            return VariadicPatternList(patterns, type_, **options)
 
-    return FixedPatternList(patterns, type)
+    return FixedPatternList(patterns, type_, **options)
 
 
 @cython.final
@@ -1762,15 +1808,15 @@ class FixedPatternList(Pattern):
 
     """
 
+    type_: type
     patterns: list[Pattern]
-    type_: Any
 
-    def __init__(self, patterns, type):
-        self.patterns = list(map(pattern, patterns))
-        self.type_ = type
+    def __init__(self, patterns, type_=list, **options):
+        self.type_ = type_
+        self.patterns = [pattern(p, **options) for p in patterns]
 
     def __repr__(self) -> str:
-        return f"FixedPatternList({self.patterns!r}, type_={self.type_!r})"
+        return f"{self.__class__.__name__}({self.patterns!r}, type_={self.type_!r})"
 
     def equals(self, other: FixedPatternList) -> bool:
         return self.patterns == other.patterns and self.type_ == other.type_
@@ -1804,15 +1850,15 @@ class FixedPatternList(Pattern):
 @cython.final
 @cython.cclass
 class VariadicPatternList(Pattern):
+    type_: type
     patterns: list[Pattern]
-    type_: Any
 
-    def __init__(self, patterns, type=list):
-        self.patterns = list(map(pattern, patterns))
-        self.type_ = type
+    def __init__(self, patterns, type_=list, **options):
+        self.type_ = type_
+        self.patterns = [pattern(p, **options) for p in patterns]
 
     def __repr__(self) -> str:
-        return f"VariadicPatternList({self.patterns!r}, {self.type_!r})"
+        return f"{self.__class__.__name__}({self.patterns!r}, {self.type_!r})"
 
     def equals(self, other: VariadicPatternList) -> bool:
         return self.patterns == other.patterns and self.type_ == other.type_
@@ -1877,16 +1923,15 @@ class VariadicPatternList(Pattern):
         return self.type_(result)
 
 
-@cython.ccall
-def PatternMap(fields) -> Pattern:
+def PatternMap(fields, **options) -> Pattern:
     if len(fields) == 1:
-        return PatternMap1(fields)
+        return PatternMap1(fields, **options)
     elif len(fields) == 2:
-        return PatternMap2(fields)
+        return PatternMap2(fields, **options)
     elif len(fields) == 3:
-        return PatternMap3(fields)
+        return PatternMap3(fields, **options)
     else:
-        return PatternMapN(fields)
+        return PatternMapN(fields, **options)
 
 
 @cython.final
@@ -1895,19 +1940,22 @@ class PatternMap1(Pattern):
     field1: str
     pattern1: Pattern
 
-    def __init__(self, fields):
+    def __init__(self, fields, **options):
         ((self.field1, pattern1),) = fields.items()
-        self.pattern1 = pattern(pattern1)
+        self.pattern1 = pattern(pattern1, **options)
 
     def __repr__(self) -> str:
-        return f"PatternMap1({self.field1!r}={self.pattern1!r})"
+        return f"{self.__class__.__name__}({self.field1!r}={self.pattern1!r})"
 
     def equals(self, other: PatternMap1) -> bool:
         return self.field1 == other.field1 and self.pattern1 == other.pattern1
 
     @cython.cfunc
     def match(self, value, ctx: Context):
-        if not isinstance(value, dict):
+        # TODO(kszucs): checking for Mapping is slow, speed it up e.g. by putting
+        # both len and getitem in a try block catching AttributeError indicating
+        # that value is not implementing the mapping ABC
+        if not isinstance(value, Mapping):
             raise NoMatchError()
 
         if len(value) != 1:
@@ -1934,13 +1982,13 @@ class PatternMap2(Pattern):
     pattern1: Pattern
     pattern2: Pattern
 
-    def __init__(self, fields):
+    def __init__(self, fields, **options):
         (self.field1, pattern1), (self.field2, pattern2) = fields.items()
-        self.pattern1 = pattern(pattern1)
-        self.pattern2 = pattern(pattern2)
+        self.pattern1 = pattern(pattern1, **options)
+        self.pattern2 = pattern(pattern2, **options)
 
     def __repr__(self) -> str:
-        return f"PatternMap2({self.field1!r}={self.pattern1!r}, {self.field2!r}={self.pattern2!r})"
+        return f"{self.__class__.__name__}({self.field1!r}={self.pattern1!r}, {self.field2!r}={self.pattern2!r})"
 
     def equals(self, other: PatternMap2) -> bool:
         return (
@@ -1952,7 +2000,7 @@ class PatternMap2(Pattern):
 
     @cython.cfunc
     def match(self, value, ctx: Context):
-        if not isinstance(value, dict):
+        if not isinstance(value, Mapping):
             raise NoMatchError()
 
         if len(value) != 2:
@@ -1983,16 +2031,16 @@ class PatternMap3(Pattern):
     pattern2: Pattern
     pattern3: Pattern
 
-    def __init__(self, fields):
+    def __init__(self, fields, **options):
         (self.field1, pattern1), (self.field2, pattern2), (self.field3, pattern3) = (
             fields.items()
         )
-        self.pattern1 = pattern(pattern1)
-        self.pattern2 = pattern(pattern2)
-        self.pattern3 = pattern(pattern3)
+        self.pattern1 = pattern(pattern1, **options)
+        self.pattern2 = pattern(pattern2, **options)
+        self.pattern3 = pattern(pattern3, **options)
 
     def __repr__(self) -> str:
-        return f"PatternMap3({self.field1!r}={self.pattern1!r}, {self.field2!r}={self.pattern2!r}, {self.field3!r}={self.pattern3!r})"
+        return f"{self.__class__.__name__}({self.field1!r}={self.pattern1!r}, {self.field2!r}={self.pattern2!r}, {self.field3!r}={self.pattern3!r})"
 
     def equals(self, other: PatternMap3) -> bool:
         return (
@@ -2006,7 +2054,7 @@ class PatternMap3(Pattern):
 
     @cython.cfunc
     def match(self, value, ctx: Context):
-        if not isinstance(value, dict):
+        if not isinstance(value, Mapping):
             raise NoMatchError()
 
         if len(value) != 3:
@@ -2041,18 +2089,18 @@ class PatternMap3(Pattern):
 class PatternMapN(Pattern):
     fields: dict[str, Pattern]
 
-    def __init__(self, fields):
-        self.fields = {k: pattern(v) for k, v in fields.items()}
+    def __init__(self, fields, **options):
+        self.fields = {k: pattern(v, **options) for k, v in fields.items()}
 
     def __repr__(self) -> str:
-        return f"PatternMapN({self.fields!r})"
+        return f"{self.__class__.__name__}({self.fields!r})"
 
     def equals(self, other: PatternMapN) -> bool:
         return self.fields == other.fields
 
     @cython.cfunc
     def match(self, value, ctx: Context):
-        if not isinstance(value, dict):  # check for __getitem__
+        if not isinstance(value, Mapping):
             raise NoMatchError()
 
         if len(value) != len(self.fields):
@@ -2077,7 +2125,9 @@ class PatternMapN(Pattern):
 
 
 @cython.ccall
-def pattern(obj: Any, allow_custom: bool = True) -> Pattern:
+def pattern(
+    obj: Any, allow_coercion: bool = False, self_qualname: Optional[str] = None
+) -> Pattern:
     """Create a pattern from various types.
 
     Not that if a Coercible type is passed as argument, the constructed pattern
@@ -2089,8 +2139,6 @@ def pattern(obj: Any, allow_custom: bool = True) -> Pattern:
     obj
         The object to create a pattern from. Can be a pattern, a type, a callable,
         a mapping, an iterable or a value.
-    allow_custom
-        Whether to allow custom functions to be used as patterns.
 
     Examples
     --------
@@ -2112,20 +2160,27 @@ def pattern(obj: Any, allow_custom: bool = True) -> Pattern:
         return _any
     elif isinstance(obj, Pattern):
         return obj
+    elif is_typehint(obj):
+        return Pattern.from_typehint(
+            obj, allow_coercion=allow_coercion, self_qualname=self_qualname
+        )
     elif isinstance(obj, (Deferred, Builder)):
         return EqDeferred(obj)
     elif isinstance(obj, Mapping):
-        return PatternMap(obj)
+        return PatternMap(
+            obj, allow_coercion=allow_coercion, self_qualname=self_qualname
+        )
     elif isinstance(obj, Sequence):
         if isinstance(obj, (str, bytes)):
             return EqValue(obj)
         else:
-            return PatternList(obj, type(obj))
-    elif isinstance(obj, type):
-        return InstanceOf(obj)
-    elif get_type_origin(obj):
-        return Pattern.from_typehint(obj, allow_coercion=False)
-    elif callable(obj) and allow_custom:
+            return PatternList(
+                obj,
+                type_=type(obj),
+                allow_coercion=allow_coercion,
+                self_qualname=self_qualname,
+            )
+    elif callable(obj):
         return Custom(obj)
     else:
         return EqValue(obj)
