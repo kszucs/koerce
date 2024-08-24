@@ -43,12 +43,12 @@ def ignore_import(imp, modules):
         raise TypeError(imp)
 
 
-def concatenate_files(file_paths, output_file):
+def concatenate_files(header, inputs, output):
     all_imports = []
     all_code = []
     modules = []
 
-    for file_path in file_paths:
+    for file_path in inputs:
         path = Path(SOURCE_DIR / file_path)
         imports, code = extract_imports_and_code(path)
         all_imports.extend(imports)
@@ -59,7 +59,12 @@ def concatenate_files(file_paths, output_file):
     unique_imports = {ast.unparse(stmt): stmt for stmt in all_imports}
 
     # Write to the output file
-    with (SOURCE_DIR / output_file).open("w") as out:
+    with (SOURCE_DIR / output).open("w") as out:
+        # Write the header
+        for line in header:
+            out.write(line)
+            out.write("\n")
+
         # Write unique imports
         for code, stmt in unique_imports.items():
             if not ignore_import(stmt, modules):
@@ -72,7 +77,13 @@ def concatenate_files(file_paths, output_file):
             out.write("\n\n\n")
 
 
-concatenate_files(["builders.py", "patterns.py", "annots.py"], "_internal.pyx")
+concatenate_files(
+    header=[
+        "# cython: language_level=3, binding=False, boundscheck=False, nonecheck=False, always_allow_keywords=False"
+    ],
+    inputs=["builders.py", "patterns.py", "annots.py"],
+    output="_internal.pyx",
+)
 extension = Extension("koerce._internal", ["koerce/_internal.pyx"])
 
 cythonized_modules = cythonize(
@@ -81,13 +92,14 @@ cythonized_modules = cythonize(
     cache=True,
     show_all_warnings=False,
     annotate=True,
-    compiler_directives={
-        "language_level": "3",
-        "binding": False,
-        "boundscheck": False,
-        "nonecheck": False,
-        "always_allow_keywords": False,
-    },
+    # The directives below don't seem to work with cythonize
+    # compiler_directives={
+    #     "language_level": "3",
+    #     "binding": False,
+    #     "boundscheck": False,
+    #     "nonecheck": False,
+    #     "always_allow_keywords": False,
+    # },
 )
 
 dist = Distribution({"ext_modules": cythonized_modules})

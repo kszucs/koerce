@@ -7,6 +7,7 @@ from typing import Generic
 import pytest
 
 pydantic = pytest.importorskip("pydantic")
+msgspec = pytest.importorskip("msgspec")
 
 from ibis.common.grounds import Annotable as IAnnotable
 from pydantic import BaseModel, validate_call
@@ -168,33 +169,43 @@ class KUser(Annotable):
     children: list[str] = []
 
 
-class IUser(IAnnotable):
+class MUser(msgspec.Struct):
     id: int
     name: str = "Jane Doe"
     age: int | None = None
     children: list[str] = []
 
 
-ch = ["Alice", "Bob", "Charlie"]
-ch = []
+data = {"id": 1, "name": "Jane Doe", "age": None, "children": []}
 
 
 def test_pydantic(benchmark):
     r1 = benchmark.pedantic(
         PUser,
         args=(),
-        kwargs={"id": 1, "name": "Jane Doe", "age": None, "children": []},
+        kwargs=data,
         iterations=ITS,
         rounds=20000,
     )
     assert r1 == PUser(id=1, name="Jane Doe", age=None, children=[])
 
 
+def test_msgspec(benchmark):
+    r1 = benchmark.pedantic(
+        msgspec.convert,
+        args=(data, MUser),
+        kwargs={},
+        iterations=ITS,
+        rounds=20000,
+    )
+    assert r1 == MUser(id=1, name="Jane Doe", age=None, children=[])
+
+
 def test_annotated(benchmark):
     r2 = benchmark.pedantic(
         KUser,
         args=(),
-        kwargs={"id": 1, "name": "Jane Doe", "age": None, "children": ()},
+        kwargs=data,
         iterations=ITS,
         rounds=20000,
     )
