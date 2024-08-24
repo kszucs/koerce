@@ -750,3 +750,8 @@ def builder(obj, allow_custom=False) -> Builder:
     else:
         # the object is used as a constant value
         return Just(obj)
+
+
+def resolve(obj, context):
+    bldr: Builder = builder(obj)
+    return bldr.build(context)

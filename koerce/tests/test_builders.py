@@ -171,7 +171,7 @@ def test_builder_item():
     assert b.apply({"v": {"a": 1, "b": 2}, "name": "b"}) == 2
 
 
-def test_builder_Seq():
+def test_builder_seq():
     b = Seq([Just(1), Just(2), Just(3)])
     assert b.apply({}) == [1, 2, 3]
 
@@ -179,7 +179,7 @@ def test_builder_Seq():
     assert b.apply({}) == (1, 2, 3)
 
 
-def test_builder_Map():
+def test_builder_map():
     b = Map({"a": Just(1), "b": Just(2)})
     assert b.apply({}) == {"a": 1, "b": 2}
 
