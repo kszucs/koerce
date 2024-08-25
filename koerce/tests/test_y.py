@@ -80,7 +80,7 @@ v = SchemaValidator(
 
 p = Person(name="Samuel", age=35, is_developer=True, has_children=False)
 
-data = {"name": "Samuel", "age": 35, "is_developer": True, "has_children": False}
+pmap_data = {"name": "Samuel", "age": 35, "is_developer": True, "has_children": False}
 
 
 ITS = 50
@@ -88,17 +88,19 @@ ITS = 50
 
 def test_patternmap_pydantic(benchmark):
     r1 = benchmark.pedantic(
-        v.validate_python, args=(data,), iterations=ITS, rounds=20000
+        v.validate_python, args=(pmap_data,), iterations=ITS, rounds=20000
     )
-    assert r1 == data
+    assert r1 == pmap_data
 
 
 def test_patternmap_koerce(benchmark):
     pat = PatternMap(
         {"name": str, "age": int, "is_developer": bool, "has_children": bool}
     )
-    r2 = benchmark.pedantic(pat.apply, args=(data, {}), iterations=ITS, rounds=20000)
-    assert r2 == data
+    r2 = benchmark.pedantic(
+        pat.apply, args=(pmap_data, {}), iterations=ITS, rounds=20000
+    )
+    assert r2 == pmap_data
 
 
 def func(x: int, y: str, *args: int, z: float = 3.14, **kwargs) -> float: ...

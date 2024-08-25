@@ -350,22 +350,22 @@ def test_generic_instance_of_2():
     assert p.apply(v := My2(1, 2.0)) is v
 
 
-# def test_as():
-#     class MyInt(int):
-#         @classmethod
-#         def __coerce__(cls, other):
-#             return MyInt(int(other))
+def test_as():
+    class MyInt(int):
+        @classmethod
+        def __coerce__(cls, other):
+            return MyInt(int(other))
 
-#     class MyGenericInt(Generic[T]):
-#         value: T
+    class MyGenericInt(Generic[T]):
+        value: T
 
-#         @classmethod
-#         def __coerce__(cls, other, T):
-#             return cls(T(other))
+        @classmethod
+        def __coerce__(cls, other, T):
+            return cls(T(other))
 
-#     assert isinstance(As(int), AsType)
-#     assert isinstance(As(MyInt), CoercedTo)
-#     assert isinstance(As(MyGenericInt[int]), GenericCoercedTo)
+    assert isinstance(As(int), AsType)
+    assert isinstance(As(MyInt), AsCoercible)
+    assert isinstance(As(MyGenericInt[int]), AsCoercibleGeneric)
 
 
 def test_as_type():

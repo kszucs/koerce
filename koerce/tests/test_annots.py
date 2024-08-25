@@ -1814,28 +1814,6 @@ def test_initialized_attribute_mixed_with_classvar():
     assert "shape" in v.__slots__
 
 
-# def test_composition_of_annotable_and_singleton() -> None:
-#     class AnnSing(Annotable, Singleton):
-#         value = CoercedTo(int)
-
-#     class SingAnn(Singleton, Annotable):
-#         # this is the preferable method resolution order
-#         value = CoercedTo(int)
-
-#     # arguments looked up after validation
-#     obj1 = AnnSing("3")
-#     assert AnnSing("3") is obj1
-#     assert AnnSing(3) is obj1
-#     assert AnnSing(3.0) is obj1
-
-#     # arguments looked up before validation
-#     obj2 = SingAnn("3")
-#     assert SingAnn("3") is obj2
-#     obj3 = SingAnn(3)
-#     assert obj3 is not obj2
-#     assert SingAnn(3) is obj3
-
-
 def test_hashable():
     assert BetweenWithCalculated.__mro__ == (
         BetweenWithCalculated,
@@ -1875,27 +1853,6 @@ def test_hashable():
 
     # serializable
     assert pickle.loads(pickle.dumps(obj)) == obj
-
-
-# def test_composition_of_concrete_and_singleton():
-#     class ConcSing(Concrete, Singleton):
-#         value = CoercedTo(int)
-
-#     class SingConc(Singleton, Concrete):
-#         value = CoercedTo(int)
-
-#     # arguments looked up after validation
-#     obj = ConcSing("3")
-#     assert ConcSing("3") is obj
-#     assert ConcSing(3) is obj
-#     assert ConcSing(3.0) is obj
-
-#     # arguments looked up before validation
-#     obj = SingConc("3")
-#     assert SingConc("3") is obj
-#     obj2 = SingConc(3)
-#     assert obj2 is not obj
-#     assert SingConc(3) is obj2
 
 
 def test_init_subclass_keyword_arguments():
@@ -1997,6 +1954,7 @@ def test_annotable_supports_abstractmethods():
     assert Bar.__abstractmethods__ == frozenset()
 
 
+# TODO(kszucs): test __new__ as well
 def test_annotable_with_custom_init():
     called_with = None
 

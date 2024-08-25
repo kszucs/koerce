@@ -10,8 +10,11 @@ class _Variable(Deferred):
         builder = Var(name)
         super().__init__(builder)
 
-    def __invert__(self):
+    def __pos__(self):
         return Capture(self)
+
+    def __neg__(self):
+        return self
 
 
 class _Namespace:
@@ -47,7 +50,7 @@ def var(name):
 
 
 def match(
-    pat: Pattern, value: Any, context: Context = None, allow_coercion: bool = True
+    pat: Pattern, value: Any, context: Context = None, allow_coercion: bool = False
 ) -> Any:
     """Match a value against a pattern.
 
