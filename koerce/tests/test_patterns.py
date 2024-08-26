@@ -3,6 +3,7 @@ from __future__ import annotations
 import functools
 import sys
 from dataclasses import dataclass
+from datetime import datetime
 from typing import (
     Annotated,
     Any,
@@ -15,39 +16,38 @@ from typing import (
     TypeVar,
     Union,
 )
-from datetime import datetime
+
 import pytest
 from typing_extensions import Self
 
 from koerce import match
-from koerce.utils import FrozenDict
 from koerce._internal import (
     AllOf,
     AnyOf,
     Anything,
-    FrozenDictOf,
+    As,
+    AsCoercible,
+    AsCoercibleGeneric,
+    AsDispatch,
     AsType,
-    Custom,
     Call,
     CallableWith,
-    Is,
-    As,
     Capture,
-    AsCoercible,
     CoercionError,
+    Custom,
     Deferred,
     DictOf,
     EqValue,
-    AsCoercibleGeneric,
+    FrozenDictOf,
+    IdenticalTo,
+    If,
+    Is,
     IsGeneric,
     IsGeneric1,
     IsGeneric2,
     IsGenericN,
-    IdenticalTo,
-    Object,
-    If,
-    IsType,
     IsIn,
+    IsType,
     IsTypeLazy,
     ListOf,
     MappingOf,
@@ -55,7 +55,7 @@ from koerce._internal import (
     NoneOf,
     Not,
     Nothing,
-    ObjectOf,
+    Object,
     ObjectOf1,
     ObjectOf2,
     ObjectOf3,
@@ -65,7 +65,6 @@ from koerce._internal import (
     Pattern,
     PatternList,
     PatternMap,
-    AsDispatch,
     Replace,
     SequenceOf,
     SomeChunksOf,
@@ -75,6 +74,7 @@ from koerce._internal import (
     Var,
     pattern,
 )
+from koerce.utils import FrozenDict
 
 
 @AsDispatch.register(datetime)
@@ -1245,7 +1245,7 @@ def test_pattern_decorator():
         (Optional[int], Option(IsType(int))),
         (Optional[Union[str, int]], Option(AnyOf(IsType(str), IsType(int)))),
         (Union[int, str], AnyOf(IsType(int), IsType(str))),
-        # (Annotated[int, Min(3)], AllOf(IsType(int), Min(3))),
+        (Annotated[str, endswith_d], AllOf(IsType(str), endswith_d)),
         (list[int], SequenceOf(IsType(int), list, allow_coercion=False)),
         (
             tuple[int, float, str],

@@ -752,6 +752,10 @@ def builder(obj, allow_custom=False) -> Builder:
         return Just(obj)
 
 
+def deferred(obj, allow_custom=False) -> Deferred:
+    return Deferred(builder(obj, allow_custom))
+
+
 def resolve(obj, context):
     bldr: Builder = builder(obj)
     return bldr.build(context)

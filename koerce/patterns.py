@@ -3,35 +3,34 @@ from __future__ import annotations
 import importlib
 import inspect
 from collections.abc import Callable, Mapping, Sequence
+from contextlib import suppress
 from enum import Enum
 from types import UnionType
 from typing import (
     Annotated,
     Any,
+    ClassVar,
     ForwardRef,
     Literal,
     Optional,
     TypeVar,
     Union,
-    ClassVar,
 )
 
 import cython
 from typing_extensions import GenericMeta, Self, get_original_bases
-from contextlib import suppress
 
 # TODO(kszucs): would be nice to cimport Signature and Builder
 from .builders import Builder, Deferred, Var, builder
 from .utils import (
     RewindableIterator,
     frozendict,
-    is_typehint,
     get_type_args,
     get_type_boundvars,
     get_type_origin,
     get_type_params,
+    is_typehint,
 )
-
 
 Context = dict[str, Any]
 
