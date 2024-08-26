@@ -34,7 +34,7 @@ independently or together:
 These allow delayed evaluation of python expressions given a
 context:
 
-```py
+```pycon
 In [1]: from koerce import var, resolve
 
 In [2]: a, b = var("a"), var("b")
@@ -60,7 +60,7 @@ and **replacing** specific structures in Python objects. The
 library provides an extensible yet simple way to define patterns
 and match values against them.
 
-```py
+```pycon
 In [1]: from koerce import match, NoMatch, Anything
 
 In [2]: context = {}
@@ -123,7 +123,7 @@ match(Object(B, +x, z=x) >> (x, x + 1), B(1, 2, 1))
 Patterns are also composable and can be freely combined using
 overloaded operators:
 
-```py
+```pycon
 In [1]: from koerce import match, Is, Eq, NoMatch
 
 In [2]: pattern = Is(int) | Is(str)
@@ -138,7 +138,7 @@ In [3]: pattern = Is(int) | Eq(1)
 
 Patterns can also be constructed from python typehints:
 
-```py
+```pycon
 In [1]: from koerce import match, CoercionError
 
 In [2]: class Ordinary:
@@ -176,7 +176,7 @@ compact, available under `Pattern.from_typehint()`.
 This abstraction is similar to what attrs or pydantic provide but
 there are some differences (TODO listing them).
 
-```py
+```pycon
 In [1]: from typing import Optional
    ...: from koerce import Annotable
    ...:
@@ -204,7 +204,7 @@ be done by passing `hashable=True` to the `Annotable` base class,
 in this case the hash is precomputed during initialization and
 stored in the object making the dictionary lookups cheap.
 
-```py
+```pycon
 In [1]: from typing import Optional
    ...: from koerce import Annotable
    ...:
@@ -234,7 +234,7 @@ examples see `koerce/patterns.py` and `koerce/tests/test_patterns.py`.
 
 ### `Anything` and `Nothing`
 
-```py
+```pycon
 In [1]: from koerce import match, Anything, Nothing
 
 In [2]: match(Anything(), "a")
@@ -249,7 +249,7 @@ Out[4]: koerce._internal.NoMatch
 
 ### `Eq` for equality matching
 
-```py
+```pycon
 In [1]: from koerce import Eq, match, var
 
 In [2]: x = var("x")
@@ -271,7 +271,7 @@ Out[6]: koerce._internal.NoMatch
 
 Couple simple cases are below:
 
-```py
+```pycon
 In [1]: from koerce import match, Is
 
 In [2]: class A: pass
