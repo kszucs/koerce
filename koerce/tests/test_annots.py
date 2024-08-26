@@ -1086,8 +1086,6 @@ def test_annotable():
     argnames = ("value", "lower", "upper")
     signature = BetweenSimple.__signature__
     assert isinstance(signature, Signature)
-    paramnames = tuple(signature.parameters.keys())
-
     assert BetweenSimple.__slots__ == argnames
 
     obj = BetweenSimple(10, lower=2)

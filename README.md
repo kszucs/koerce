@@ -15,6 +15,14 @@ can be cythonized and compiled to an extension module giving
 a significant speedup. Benchmarks shows more than 2x speedup
 over pydantic's model validation which is written in Rust.
 
+## Installation
+
+The package is published to PyPI, so it can be installed using
+pip:
+
+```sh
+pip install koerce
+```
 
 ## Library components
 
@@ -63,6 +71,9 @@ Out[3]: [1, 2, 3, 4, 5]
 In [4]: context
 Out[4]: {'a': 5}
 ```
+
+Note that `from koerce import koerce` function can be used instead
+of `match()` to avoid confusion with the built-in python `match`.
 
 ```py
 from dataclasses import dataclass
@@ -387,20 +398,276 @@ assert match(int, 1.1) is NoMatch
 
 ### `If` patterns for conditionals
 
-### `Custom`
+Allows conditional matching based on the value of the object,
+or other variables in the context:
 
-### `Capture`
+```py
+from koerce import match, If, Is, var, NoMatch, Capture
 
-### `Replace`
+x = var("x")
+
+pattern = Capture(x) & If(x > 0)
+assert match(pattern, 1) == 1
+assert match(pattern, -1) is NoMatch
+```
+
+### `Custom` for user defined matching logic
+
+A function passed to either `match()` or `pattern()` is treated
+as a `Custom` pattern:
+
+```py
+from koerce import match, Custom, NoMatch, NoMatchError
+
+def is_even(value):
+    if value % 2:
+        raise NoMatchError("Value is not even")
+    else:
+        return value
+
+assert match(is_even, 2) == 2
+assert match(is_even, 3) is NoMatch
+```
+
+### `Capture` to record values in the context
+
+A capture pattern can be defined several ways:
+
+```py
+from koerce import Capture, Is, var
+
+x = var("x")
+
+Capture("x")  # captures anything as "x" in the context
+Capture(x)  # same as above but using a variable
+Capture("x", Is(int))  # captures only integers as "x" in the context
+Capture("x", Is(int) | Is(float))  # captures integers and floats as "x" in the context
+"x" @ Is(int)  # syntax sugar for Capture("x", Is(int))
++x  # syntax sugar for Capture(x, Anything())
+```
+
+```py
+from koerce import match, Capture, var
+
+# context is a mutable dictionary passed along the matching process
+context = {}
+assert match("x" @ Is(int), 1, context) == 1
+assert context["x"] == 1
+```
+
+### `Replace` for replacing matched values
+
+Allows replacing matched values with new ones:
+
+```py
+from koerce import match, Replace, var
+
+x = var("x")
+
+pattern = Replace(Capture(x), x + 1)
+assert match(pattern, 1) == 2
+assert match(pattern, 2) == 3
+```
+
+there is a syntax sugar for `Replace` patterns, the example above
+can be written as:
+
+```py
+from koerce import match, Replace, var
+
+x = var("x")
+
+assert match(+x >> x + 1, 1) == 2
+assert match(+x >> x + 1, 2) == 3
+```
+
+replace patterns are especially useful when matching objects:
+
+```py
+from dataclasses import dataclass
+from koerce import match, Replace, var, namespace
+
+x = var("x")
+
+@dataclass
+class A:
+    x: int
+    y: int
+
+@dataclass
+class B:
+    x: int
+    y: int
+    z: float
+
+
+p, d = namespace(__name__)
+x, y = var("x"), var("y")
+
+# if value is an instance of A then capture A.0 as x and A.1 as y
+# then construct a new B object with arguments x=x, y=1, z=y
+pattern = p.A(+x, +y) >> d.B(x=x, y=1, z=y)
+value = A(1, 2)
+expected = B(x=1, y=1, z=2)
+assert match(pattern, value) == expected
+```
+
+replacemenets can also be used in nested structures:
+
+```py
+from koerce import match, Replace, var, namespace, NoMatch
+
+@dataclass
+class Foo:
+    value: str
+
+@dataclass
+class Bar:
+    foo: Foo
+    value: int
+
+p, d = namespace(__name__)
+
+pattern = p.Bar(p.Foo("a") >> d.Foo("b"))
+value = Bar(Foo("a"), 123)
+expected = Bar(Foo("b"), 123)
+
+assert match(pattern, value) == expected
+assert match(pattern, Bar(Foo("c"), 123)) is NoMatch
+```
 
 ### `SequenceOf` / `ListOf` / `TupleOf`
 
+```py
+from koerce import Is, NoMatch, match, ListOf, TupleOf
+
+pattern = ListOf(str)
+assert match(pattern, ["foo", "bar"]) == ["foo", "bar"]
+assert match(pattern, [1, 2]) is NoMatch
+assert match(pattern, 1) is NoMatch
+```
+
 ### `MappingOf` / `DictOf` / `FrozenDictOf`
+
+```py
+from koerce import DictOf, Is, match
+
+pattern = DictOf(Is(str), Is(int))
+assert match(pattern, {"a": 1, "b": 2}) == {"a": 1, "b": 2}
+assert match(pattern, {"a": 1, "b": "2"}) is NoMatch
+```
 
 ### `PatternList`
 
+```py
+from koerce import match, NoMatch, SomeOf, ListOf, pattern
+
+four = [1, 2, 3, 4]
+three = [1, 2, 3]
+
+assert match([1, 2, 3, SomeOf(int, at_least=1)], four) == four
+assert match([1, 2, 3, SomeOf(int, at_least=1)], three) is NoMatch
+
+integer = pattern(int, allow_coercion=False)
+floating = pattern(float, allow_coercion=False)
+
+assert match([1, 2, *floating], [1, 2, 3]) is NoMatch
+assert match([1, 2, *floating], [1, 2, 3.0]) == [1, 2, 3.0]
+assert match([1, 2, *floating], [1, 2, 3.0, 4.0]) == [1, 2, 3.0, 4.0]
+```
+
 ### `PatternMap`
 
+```py
+from koerce import match, NoMatch, Is, As
+
+pattern = {
+    "a": Is(int),
+    "b": As(int),
+    "c": Is(str),
+    "d": ListOf(As(int)),
+}
+value = {
+    "a": 1,
+    "b": 2.0,
+    "c": "three",
+    "d": (4.0, 5.0, 6.0),
+}
+assert match(pattern, value) == {
+    "a": 1,
+    "b": 2,
+    "c": "three",
+    "d": [4, 5, 6],
+}
+assert match(pattern, {"a": 1, "b": 2, "c": "three"}) is NoMatch
+```
+
+## Annotable objects
+
+Annotable objects are similar to dataclasses but with some differences:
+- Annotable objects are mutable by default, but can be made immutable
+  by passing `immutable=True` to the `Annotable` base class.
+- Annotable objects can be made hashable by passing `hashable=True` to
+  the `Annotable` base class, in this case the hash is precomputed during
+  initialization and stored in the object making the dictionary lookups
+  cheap.
+- Validation strictness can be controlled by passing `allow_coercion=False`.
+  When `allow_coercion=True` the annotations are treated as `As` patterns
+  allowing the values to be coerced to the given type. When
+  `allow_coercion=False` the annotations are treated as `Is` patterns and
+  the values must be exactly of the given type. The default is
+  `allow_coercion=True`.
+- Annotable objects support inheritance, the annotations are inherited
+  from the base classes and the signatures are merged providing a
+  seamless experience.
+- Annotable objects can be called with either or both positional and
+  keyword arguments, the positional arguments are matched to the
+  annotations in order and the keyword arguments are matched to the
+  annotations by name.
+
+```py
+from typing import Optional
+from koerce import Annotable
+
+class MyBase(Annotable):
+    x: int
+    y: float
+    z: Optional[str] = None
+
+class MyClass(MyBase):
+    a: str
+    b: bytes
+    c: tuple[str, ...] = ("a", "b")
+    x: int = 1
+
+
+print(MyClass.__signature__)
+# (y: float, a: str, b: bytes, c: tuple = ('a', 'b'), x: int = 1, z: Optional[str] = None)
+
+print(MyClass(2.0, "a", b"b"))
+# MyClass(y=2.0, a='a', b=b'b', c=('a', 'b'), x=1, z=None)
+
+print(MyClass(2.0, "a", b"b", c=("c", "d")))
+# MyClass(y=2.0, a='a', b=b'b', c=('c', 'd'), x=1, z=None)
+
+print(MyClass(2.0, "a", b"b", c=("c", "d"), x=2))
+# MyClass(y=2.0, a='a', b=b'b', c=('c', 'd'), x=2, z=None)
+
+print(MyClass(2.0, "a", b"b", c=("c", "d"), x=2, z="z"))
+# MyClass(y=2.0, a='a', b=b'b', c=('c', 'd'), x=2, z='z')
+
+MyClass()
+# TypeError: missing a required argument: 'y'
+
+MyClass(2.0, "a", b"b", c=("c", "d"), x=2, z="z", invalid="invalid")
+# TypeError: got an unexpected keyword argument 'invalid'
+
+MyClass(2.0, "a", b"b", c=("c", "d"), x=2, z="z", y=3.0)
+# TypeError: multiple values for argument 'y'
+
+MyClass("asd", "a", b"b")
+# ValidationError
+```
 
 ## Performance
 
@@ -450,58 +717,23 @@ advantage of the other two libraries:
 ## TODO:
 
 The README is under construction, planning to improve it:
-- [ ] More advanced matching examples
-- [ ] Add benchmarks against pydantic
-- [ ] Show variable capturing
-- [ ] Show match and replace in nested structures
 - [ ] Example of validating functions by using @annotated decorator
 - [ ] Explain `allow_coercible` flag
-- [ ] Mention other relevant libraries
+- [ ] Proper error messages for each pattern
 
-## Other examples
+## Development
 
+- The project uses `poetry` for dependency management and packaging.
+- Python version support follows https://numpy.org/neps/nep-0029-deprecation_policy.html
+- The wheels are built using `cibuildwheel` project.
+- The implementation is in pure python with cython annotations.
+- The project uses `ruff` for code formatting.
+- The project uses `pytest` for testing.
 
-```python
-from koerce import match, NoMatch
-from koerce.sugar import Namespace
-from koerce.patterns import SomeOf, ListOf
+More detailed developer guide is coming soon.
 
-assert match([1, 2, 3, SomeOf(int, at_least=1)], four) == four
-assert match([1, 2, 3, SomeOf(int, at_least=1)], three) is NoMatch
+## References
 
-assert match(int, 1) == 1
-assert match(ListOf(int), [1, 2, 3]) == [1, 2, 3]
-```
-
-```python
-from dataclasses import dataclass
-from koerce.sugar import match, Namespace, var
-from koerce.patterns import pattern
-from koerce.builder import builder
-
-@dataclass
-class A:
-    x: int
-    y: int
-
-@dataclass
-class B:
-    x: int
-    y: int
-    z: float
-
-
-p = Namespace(pattern, __name__)
-d = Namespace(builder, __name__)
-
-x = var("x")
-y = var("y")
-
-assert match(p.A(+x, +y) >> d.B(x=x, y=1, z=y), A(1, 2)) == B(x=1, y=1, z=2)
-```
-
-More examples and a comprehensive readme are on the way.
-
-Packages are not published to PyPI yet.
-
-Python support follows https://numpy.org/neps/nep-0029-deprecation_policy.html
+The project was mostly inspired by the following projects:
+- https://github.com/scravy/awesome-pattern-matching
+- https://github.com/HPAC/matchpy

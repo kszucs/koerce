@@ -3,18 +3,14 @@ from __future__ import annotations
 import functools
 import inspect
 import typing
-from abc import ABC
-from collections.abc import Callable, Mapping, Sequence
-from copy import copy
+from collections.abc import Mapping, Sequence
 from types import FunctionType, MethodType
 from typing import Any, ClassVar, Optional
 
 import cython
 
 from .patterns import (
-    DictOf,
     FrozenDictOf,
-    NoMatch,
     Option,
     Pattern,
     PatternMap,
@@ -148,7 +144,7 @@ class Signature:
     @staticmethod
     def from_callable(
         func: Any,
-        arg_patterns: Sequence[Any] | Mapping[str, Any] = None,
+        arg_patterns: Sequence[Any] | Mapping[str, Any] | None = None,
         return_pattern: Any = None,
         allow_coercion: bool = True,
     ) -> Signature:

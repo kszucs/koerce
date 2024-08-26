@@ -1,6 +1,20 @@
 from __future__ import annotations
 
-from koerce import NoMatch, match, var, pattern, As, Is
+from dataclasses import dataclass
+
+from koerce import (
+    As,
+    Call,
+    Deferred,
+    Is,
+    NoMatch,
+    Object,
+    builder,
+    match,
+    namespace,
+    pattern,
+    var,
+)
 
 
 def test_match_strictness():
@@ -36,5 +50,18 @@ def test_capture_shorthand():
     assert ctx == {"a": 1}
 
 
+@dataclass
+class Point:
+    x: int
+    y: int
+
+
 def test_namespace():
-    pass
+    p, d = namespace(__name__)
+    assert p.Point == Is(Point)
+    assert p.Point(1, 2) == Object(Point, 1, 2)
+
+    point_deferred = d.Point(1, 2)
+    point_builder = builder(point_deferred)
+    assert isinstance(point_deferred, Deferred)
+    assert point_builder == Call(Point, 1, 2)

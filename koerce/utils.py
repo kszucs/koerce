@@ -5,6 +5,7 @@ import sys
 import typing
 from collections.abc import Hashable
 from typing import Any, Optional, TypeVar
+
 from typing_extensions import Self
 
 _SpecialForm = type(Self)

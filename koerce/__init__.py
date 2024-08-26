@@ -49,7 +49,13 @@ def var(name):
     return _Variable(name)
 
 
-def match(
+def namespace(module):
+    p = _Namespace(pattern, module)
+    d = _Namespace(deferred, module)
+    return p, d
+
+
+def koerce(
     pat: Pattern, value: Any, context: Context = None, allow_coercion: bool = False
 ) -> Any:
     """Match a value against a pattern.
@@ -69,13 +75,13 @@ def match(
 
     Examples
     --------
-    >>> assert match(Any(), 1) == 1
-    >>> assert match(1, 1) == 1
-    >>> assert match(1, 2) is NoMatch
-    >>> assert match(1, 1, context={"x": 1}) == 1
-    >>> assert match(1, 2, context={"x": 1}) is NoMatch
-    >>> assert match([1, int], [1, 2]) == [1, 2]
-    >>> assert match([1, int, "a" @ InstanceOf(str)], [1, 2, "three"]) == [
+    >>> assert koerce(Any(), 1) == 1
+    >>> assert koerce(1, 1) == 1
+    >>> assert koerce(1, 2) is NoMatch
+    >>> assert koerce(1, 1, context={"x": 1}) == 1
+    >>> assert koerce(1, 2, context={"x": 1}) is NoMatch
+    >>> assert koerce([1, int], [1, 2]) == [1, 2]
+    >>> assert koerce([1, int, "a" @ InstanceOf(str)], [1, 2, "three"]) == [
     ...     1,
     ...     2,
     ...     "three",
@@ -88,5 +94,6 @@ def match(
 
 _ = var("_")
 
+match = koerce
 
 # define __all__
