@@ -829,9 +829,6 @@ class Annotable(metaclass=AnnotableMeta, initable=False):
         argstring = ", ".join(args)
         return f"{self.__class__.__name__}({argstring})"
 
-    def __coerce__(self, obj, **kwargs):
-        return self.__class__(**obj)
-
     @property
     def __args__(self) -> tuple[Any, ...]:
         return tuple(getattr(self, name) for name in self.__argnames__)
