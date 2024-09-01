@@ -1990,10 +1990,11 @@ def test_any():
     assert MyClass(1).foo == 1
 
 
-def test_nested():
-    class Bar(Annotable):
-        x: int
+class Bar(Annotable):
+    x: int
 
+
+def test_nested():
     class Foo(Annotable):
         bar: Bar
 
