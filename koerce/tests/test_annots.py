@@ -7,6 +7,7 @@ from abc import ABCMeta, abstractmethod
 from dataclasses import dataclass
 from typing import (
     Annotated,
+    Any,
     Callable,
     Generic,
     Mapping,
@@ -1980,3 +1981,27 @@ def test_annotable_with_custom_init():
     assert mi.b == "2"
     assert mi.c == 3.3
     assert mi.called_with == called_with
+
+
+def test_any():
+    class MyClass(Annotable):
+        foo: Any
+
+    assert MyClass(1).foo == 1
+
+
+class Bar(Annotable):
+    x: int
+
+
+def test_nested():
+    class Foo(Annotable):
+        bar: Bar
+
+    assert Foo(Bar(1)).bar.x == 1
+
+    class Quux(Annotable):
+        bar: Bar = Bar(2)
+
+    assert Quux().bar.x == 2
+    assert Quux(Bar(3)).bar.x == 3
