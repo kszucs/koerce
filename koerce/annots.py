@@ -666,7 +666,7 @@ class AnnotableMeta(type):
         slots: list[str] = list(dct.pop("__slots__", []))
         module: str | None = dct.pop("__module__", None)
         qualname: str = dct.pop("__qualname__", clsname)
-        annotations: dict[str, Any] = dct.pop("__annotations__", {})
+        annotations: dict[str, Any] = dct.get("__annotations__", {})
         if module is None:
             self_qualname = None
         else:

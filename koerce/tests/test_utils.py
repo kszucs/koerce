@@ -128,7 +128,7 @@ def test_get_type_boundvars() -> None:
 
 
 def test_get_type_boundvars_unable_to_deduce() -> None:
-    msg = "Unable to deduce corresponding type attributes..."
+    msg = "Unable to deduce corresponding attributes..."
     with pytest.raises(ValueError, match=msg):
         get_type_boundvars(MyDict[int, str])
 

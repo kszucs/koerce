@@ -1118,6 +1118,14 @@ def test_annotable():
     # assert obj.copy(lower=8) == obj2
 
 
+def test_annotable_keeps_annotations_classvar():
+    class MyClass(Annotable):
+        a: int
+        b: str
+
+    assert MyClass.__annotations__ == {"a": "int", "b": "str"}
+
+
 def test_annotable_with_bound_typevars_properly_coerce_values():
     v = MyValue(1.1, 2.2, 3.3)
     assert isinstance(v.integer, MyInt)

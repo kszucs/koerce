@@ -165,7 +165,9 @@ def get_type_boundvars(typ: Any) -> dict[TypeVar, tuple[str, type]]:
 
     if params:
         raise ValueError(
-            f"Unable to deduce corresponding type attributes for the following type variables: {params}"
+            f"Unable to deduce corresponding attributes for type parameters of {typ}.\n"
+            f"Missing attributes with typehints for the following type variables: {params}.\n"
+            f"Available type hints: {hints}"
         )
 
     return result
