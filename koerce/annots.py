@@ -688,6 +688,7 @@ class AnnotableMeta(type):
 
         namespace: dict[str, Any] = {}
         parameters: dict[str, Parameter] = {}
+        abstractmethods: set = set()
         for name, value in dct.items():
             if isinstance(value, Parameter):
                 parameters[name] = value
@@ -697,9 +698,7 @@ class AnnotableMeta(type):
                 slots.append(name)
             else:
                 if getattr(value, "__isabstractmethod__", False):
-                    abstracts.add(name)
-                else:
-                    abstracts.discard(name)
+                    abstractmethods.add(name)
                 namespace[name] = value
 
         # merge the annotations with the parent annotations
@@ -724,7 +723,15 @@ class AnnotableMeta(type):
             __spec__=spec,
         )
         klass = super().__new__(metacls, clsname, bases, namespace, **kwargs)
-        klass.__abstractmethods__ = frozenset(abstracts)
+
+        # check whether the inherited abstract methods are implemented by
+        # any of the parent classes, basically recalculating the abstractmethods
+        for name in abstracts:
+            value = getattr(klass, name, None)
+            if getattr(value, "__isabstractmethod__", False):
+                abstractmethods.add(name)
+        klass.__abstractmethods__ = frozenset(abstractmethods)
+
         return klass
 
     def __call__(cls, *args, **kwargs):

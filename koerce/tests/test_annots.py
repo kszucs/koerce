@@ -1961,6 +1961,29 @@ def test_annotable_supports_abstractmethods():
     assert Bar.__abstractmethods__ == frozenset()
 
 
+def test_annotable_recalculates_inherited_abstractmethods():
+    class Abstract(Annotable):
+        @abstractmethod
+        def foo(self): ...
+
+        @property
+        @abstractmethod
+        def bar(self): ...
+
+    class Mixin:
+        def foo(self):
+            return 1
+
+        def bar(self):
+            return 2
+
+    class Foo(Mixin, Abstract):
+        pass
+
+    assert Abstract.__abstractmethods__ == frozenset({"foo", "bar"})
+    assert Foo.__abstractmethods__ == frozenset()
+
+
 # TODO(kszucs): test __new__ as well
 def test_annotable_with_custom_init():
     called_with = None
