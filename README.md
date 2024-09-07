@@ -139,7 +139,7 @@ In [3]: pattern = Is(int) | Eq(1)
 Patterns can also be constructed from python typehints:
 
 ```pycon
-In [1]: from koerce import match, CoercionError
+In [1]: from koerce import match
 
 In [2]: class Ordinary:
    ...:     def __init__(self, x, y):
@@ -154,7 +154,7 @@ In [2]: class Ordinary:
    ...:         if isinstance(value, tuple):
    ...:             return Coercible(value[0], value[1])
    ...:         else:
-   ...:             raise CoercionError("Cannot coerce value to Coercible")
+   ...:             raise ValueError("Cannot coerce value to Coercible")
    ...:
 
 In [3]: match(Ordinary, Ordinary(1, 2))

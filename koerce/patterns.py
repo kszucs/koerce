@@ -35,27 +35,20 @@ from .utils import (
 Context = dict[str, Any]
 
 
+@cython.final
 @cython.cclass
 class MatchError(Exception):
-    pass
+    value: Any
+    reason: str
+    pattern: Optional[Pattern]
 
+    def __init__(self, pattern: Pattern, value: Any, reason: str = ""):
+        self.pattern = pattern
+        self.value = value
+        self.reason = reason
 
-@cython.final
-@cython.cclass
-class NoMatchError(MatchError):
-    pass
-
-
-@cython.final
-@cython.cclass
-class CoercionError(MatchError):
-    pass
-
-
-@cython.cclass
-class NoMatch:
-    def __init__(self):
-        raise ValueError("Cannot instantiate NoMatch")
+    def __str__(self):
+        return self.pattern.describe(self.value, self.reason)
 
 
 @cython.cclass
@@ -198,13 +191,12 @@ class Pattern:
     def apply(self, value, context=None):
         if context is None:
             context = {}
-        try:
-            return self.match(value, context)
-        except MatchError:
-            return NoMatch
+        return self.match(value, context)
 
     @cython.cfunc
     def match(self, value, ctx: Context): ...
+
+    def describe(self, value, reason) -> str: ...
 
     def __repr__(self) -> str: ...
 
@@ -292,6 +284,9 @@ class Anything(Pattern):
     def equals(self, other: Anything) -> bool:
         return True
 
+    def describe(self, value, reason):
+        return "Anything() always matches"
+
     @cython.cfunc
     @cython.inline
     def match(self, value, ctx: Context):
@@ -310,10 +305,13 @@ class Nothing(Pattern):
     def equals(self, other: Nothing) -> bool:
         return True
 
+    def describe(self, value, reason):
+        return "Nothing() never matches"
+
     @cython.cfunc
     @cython.inline
     def match(self, value, ctx: Context):
-        raise NoMatchError()
+        raise MatchError(self, value)
 
 
 @cython.final
@@ -330,13 +328,16 @@ class IdenticalTo(Pattern):
     def equals(self, other: IdenticalTo) -> bool:
         return self.value == other.value
 
+    def describe(self, value, reason):
+        return f"{value!r} is not identical to {self.value!r}"
+
     @cython.cfunc
     @cython.inline
     def match(self, value, ctx: Context):
         if value is self.value:
             return value
         else:
-            raise NoMatchError()
+            raise MatchError(self, value)
 
 
 @cython.ccall
@@ -361,13 +362,16 @@ class EqValue(Pattern):
     def equals(self, other: EqValue) -> bool:
         return self.value == other.value
 
+    def describe(self, value, reason) -> str:
+        return f"`{value!r}` is not equal to the expected `{self.value!r}`"
+
     @cython.cfunc
     @cython.inline
     def match(self, value, ctx: Context):
         if value == self.value:
             return value
         else:
-            raise NoMatchError()
+            raise MatchError(self, value)
 
 
 @cython.final
@@ -390,6 +394,12 @@ class EqDeferred(Pattern):
     def __repr__(self) -> str:
         return f"{self.__class__.__name__}({self.value!r})"
 
+    def equals(self, other: EqDeferred) -> bool:
+        return self.value == other.value
+
+    def describe(self, value, reason) -> str:
+        return f"`{value!r}` is not equal to deferred {self.value!r}"
+
     @cython.cfunc
     def match(self, value, ctx: Context):
         # ctx["_"] = value
@@ -398,7 +408,7 @@ class EqDeferred(Pattern):
         if value == self.value.apply(ctx):
             return value
         else:
-            raise NoMatchError()
+            raise MatchError(self, value)
 
 
 @cython.final
@@ -416,13 +426,16 @@ class TypeOf(Pattern):
     def equals(self, other: TypeOf) -> bool:
         return self.type_ == other.type_
 
+    def describe(self, value, reason):
+        return f"`{value!r}` doesn't have the exact type of {self.type_}"
+
     @cython.cfunc
     @cython.inline
     def match(self, value, ctx: Context):
         if type(value) is self.type_:
             return value
         else:
-            raise NoMatchError()
+            raise MatchError(self, value)
 
 
 @cython.ccall
@@ -449,13 +462,16 @@ class IsType(Pattern):
     def equals(self, other: IsType) -> bool:
         return self.type_ == other.type_
 
+    def describe(self, value, reason) -> str:
+        return f"`{value!r}` is not an instance of {self.type_}"
+
     @cython.cfunc
     @cython.inline
     def match(self, value, ctx: Context):
         if isinstance(value, self.type_):
             return value
         else:
-            raise NoMatchError()
+            raise MatchError(self, value)
 
 
 @cython.final
@@ -488,6 +504,9 @@ class IsTypeLazy(Pattern):
     def equals(self, other: IsTypeLazy) -> bool:
         return self.qualname == other.qualname
 
+    def describe(self, value, reason) -> str:
+        return f"`{value!r}` is not an instance of {self.qualname!r}"
+
     @cython.cfunc
     def _import_type(self):
         module_name, type_name = self.qualname.rsplit(".", 1)
@@ -503,7 +522,7 @@ class IsTypeLazy(Pattern):
             if isinstance(value, self.type_):
                 return value
             else:
-                raise NoMatchError()
+                raise MatchError(self, value)
 
         klass: Any
         package: str
@@ -514,9 +533,9 @@ class IsTypeLazy(Pattern):
                 if isinstance(value, self.type_):
                     return value
                 else:
-                    raise NoMatchError()
+                    raise MatchError(self, value)
 
-        raise NoMatchError()
+        raise MatchError(self, value)
 
 
 @cython.ccall
@@ -545,7 +564,10 @@ class IsGeneric1(Pattern):
         self.pattern1 = Pattern.from_typehint(type1, allow_coercion=False)
 
     def __repr__(self) -> str:
-        return f"{self.__class__.__name__}({self.origin!r}, name1={self.name1!r}, pattern1={self.pattern1!r})"
+        return (
+            f"{self.__class__.__name__}({self.origin!r}, "
+            f"name1={self.name1!r}, pattern1={self.pattern1!r})"
+        )
 
     def __call__(self, *args, **kwargs):
         return ObjectOf(self, args, kwargs)
@@ -557,10 +579,13 @@ class IsGeneric1(Pattern):
             and self.pattern1 == other.pattern1
         )
 
+    def describe(self, value, reason) -> str:
+        return f"{value!r} is not an instance of {self.origin!r}"
+
     @cython.cfunc
     def match(self, value, ctx: Context):
         if not isinstance(value, self.origin):
-            raise NoMatchError()
+            raise MatchError(self, value)
 
         attr1 = getattr(value, self.name1)
         self.pattern1.match(attr1, ctx)
@@ -585,24 +610,31 @@ class IsGeneric2(Pattern):
         self.pattern2 = Pattern.from_typehint(type2, allow_coercion=False)
 
     def __repr__(self) -> str:
-        return f"{self.__class__.__name__}({self.origin!r}, name1={self.name1!r}, pattern1={self.pattern1!r}, name2={self.name2!r}, pattern2={self.pattern2!r})"
+        return (
+            f"{self.__class__.__name__}({self.origin!r}, "
+            f"name1={self.name1!r}, pattern1={self.pattern1!r}, "
+            f"name2={self.name2!r}, pattern2={self.pattern2!r})"
+        )
 
     def __call__(self, *args, **kwargs):
         return ObjectOf(self, *args, **kwargs)
+
+    def describe(self, value, reason) -> str:
+        return f"{value!r} is not an instance of {self.origin!r}"
 
     def equals(self, other: IsGeneric2) -> bool:
         return (
             self.origin == other.origin
             and self.name1 == other.name1
-            and self.pattern1 == other.pattern1
             and self.name2 == other.name2
+            and self.pattern1 == other.pattern1
             and self.pattern2 == other.pattern2
         )
 
     @cython.cfunc
     def match(self, value, ctx: Context):
         if not isinstance(value, self.origin):
-            raise NoMatchError()
+            raise MatchError(self, value)
 
         attr1 = getattr(value, self.name1)
         self.pattern1.match(attr1, ctx)
@@ -639,7 +671,7 @@ class IsGenericN(Pattern):
     @cython.cfunc
     def match(self, value, ctx: Context):
         if not isinstance(value, self.origin):
-            raise NoMatchError()
+            raise MatchError(self, value)
 
         name: str
         pattern: Pattern
@@ -664,13 +696,16 @@ class SubclassOf(Pattern):
     def equals(self, other: SubclassOf) -> bool:
         return self.type_ == other.type_
 
+    def describe(self, value, reason) -> str:
+        return f"{value!r} is not a subclass of {self.type_!r}"
+
     @cython.cfunc
     @cython.inline
     def match(self, value, ctx: Context):
         if issubclass(value, self.type_):
             return value
         else:
-            raise NoMatchError()
+            raise MatchError(self, value)
 
 
 @cython.ccall
@@ -702,17 +737,25 @@ class AsType(Pattern):
     def equals(self, other: AsType) -> bool:
         return self.type_ == other.type_
 
+    def describe(self, value, reason) -> str:
+        if reason == "is-none":
+            return f"passed value is None and cannot be coerced to {self.type_!r}"
+        elif reason == "failed-to-coerce":
+            return f"failed to construct an instance using `{self.type_.__name__}({value!r})`"
+        else:
+            raise ValueError(f"Unknown reason: {reason}")
+
     @cython.cfunc
     def match(self, value, ctx: Context):
         if isinstance(value, self.type_):
             return value
         elif value is None:
-            raise NoMatchError()
+            raise MatchError(self, value, "is-none")
 
         try:
             return self.type_(value)
-        except ValueError:
-            raise NoMatchError()
+        except ValueError as exc:
+            raise MatchError(self, value, "failed-to-coerce") from exc
 
 
 @cython.final
@@ -759,11 +802,17 @@ class AsDispatch(Pattern):
     def equals(self, other: AsDispatch) -> bool:
         return self.type_ == other.type_ and self.func == other.func
 
+    def describe(self, value, reason) -> str:
+        return f"failed to construct {self.type_!r} from `{value!r}`"
+
     @cython.cfunc
     def match(self, value, ctx: Context):
         if isinstance(value, self.type_):
             return value
-        return self.func(self.type_, value)
+        try:
+            return self.func(self.type_, value)
+        except Exception as exc:
+            raise MatchError(self, value) from exc
 
 
 @cython.final
@@ -785,17 +834,28 @@ class AsCoercible(Pattern):
     def equals(self, other: AsCoercible) -> bool:
         return self.type_ == other.type_
 
+    def describe(self, value, reason) -> str:
+        if reason == "failed-to-coerce":
+            return f"`{value!r}` cannot be coerced to {self.type_!r}"
+        elif reason == "not-an-instance":
+            return (
+                f"`{self.type_.__name__}.__coerce__({value!r})` did not "
+                f"return an instance of {self.type_!r}"
+            )
+        else:
+            raise ValueError(f"Unknown reason: {reason}")
+
     @cython.cfunc
     def match(self, value, ctx: Context):
         try:
             value = self.type_.__coerce__(value)
-        except CoercionError:
-            raise NoMatchError()
+        except Exception as exc:
+            raise MatchError(self, value, "failed-to-coerce") from exc
 
         if isinstance(value, self.type_):
             return value
         else:
-            raise NoMatchError()
+            raise MatchError(self, value, "not-an-instance")
 
 
 @cython.final
@@ -826,12 +886,18 @@ class AsCoercibleGeneric(Pattern):
     def equals(self, other: AsCoercibleGeneric) -> bool:
         return self.origin == other.origin and self.params == other.params
 
+    def describe(self, value, reason) -> str:
+        if reason == "failed-to-coerce":
+            return f"{value!r} cannot be coerced to {self.origin!r}"
+        else:
+            raise ValueError(f"Unknown reason: {reason}")
+
     @cython.cfunc
     def match(self, value, ctx: Context):
         try:
             value = self.origin.__coerce__(value, **self.params)
-        except CoercionError:
-            raise NoMatchError()
+        except Exception as exc:
+            raise MatchError(self, value, "failed-to-coerce") from exc
 
         self.checker.match(value, ctx)
 
@@ -852,14 +918,17 @@ class Not(Pattern):
     def equals(self, other: Not) -> bool:
         return self.inner == other.inner
 
+    def describe(self, value, reason) -> str:
+        return f"`{value!r}` is matching {self.inner!r} whereas it should not"
+
     @cython.cfunc
     def match(self, value, ctx: Context):
         try:
             self.inner.match(value, ctx)
-        except NoMatchError:
+        except MatchError:
             return value
         else:
-            raise NoMatchError()
+            raise MatchError(self, value)
 
 
 @cython.final
@@ -876,15 +945,18 @@ class AnyOf(Pattern):
     def equals(self, other: AnyOf) -> bool:
         return self.inners == other.inners
 
+    def describe(self, value, reason) -> str:
+        return f"`{value!r}` does not match any of {self.inners!r}"
+
     @cython.cfunc
     def match(self, value, ctx: Context):
         inner: Pattern
         for inner in self.inners:
             try:
                 return inner.match(value, ctx)
-            except NoMatchError:
+            except MatchError:
                 pass
-        raise NoMatchError()
+        raise MatchError(self, value)
 
     def __or__(self, other: Pattern) -> AnyOf:
         """Syntax sugar for matching either of the patterns.
@@ -1016,12 +1088,15 @@ class IfFunction(Pattern):
     def equals(self, other: IfFunction) -> bool:
         return self.predicate == other.predicate
 
+    def describe(self, value, reason) -> str:
+        return f"`{value!r}` does not satisfy the condition {self.predicate!r}"
+
     @cython.cfunc
     def match(self, value, ctx: Context):
         if self.predicate(value):
             return value
         else:
-            raise NoMatchError()
+            raise MatchError(self, value)
 
 
 @cython.final
@@ -1047,6 +1122,9 @@ class IfDeferred(Pattern):
     def equals(self, other: IfDeferred) -> bool:
         return self.builder == other.builder
 
+    def describe(self, value, reason) -> str:
+        return f"{value!r} does not satisfy the deferred predicate {self.builder!r}"
+
     @cython.cfunc
     def match(self, value, ctx: Context):
         # TODO(kszucs): Builder is not cimported so self.builder.build()
@@ -1055,7 +1133,7 @@ class IfDeferred(Pattern):
         if self.builder.apply(ctx):
             return value
         else:
-            raise NoMatchError()
+            raise MatchError(self, value)
 
 
 @cython.final
@@ -1081,12 +1159,15 @@ class IsIn(Pattern):
     def equals(self, other: IsIn) -> bool:
         return self.haystack == other.haystack
 
+    def describe(self, value, reason) -> str:
+        return f"`{value!r}` is not in {self.haystack!r}"
+
     @cython.cfunc
     def match(self, value, ctx: Context):
         if value in self.haystack:
             return value
         else:
-            raise NoMatchError()
+            raise MatchError(self, value)
 
 
 @cython.final
@@ -1120,18 +1201,26 @@ class SequenceOf(Pattern):
     def equals(self, other: SequenceOf) -> bool:
         return self.item == other.item and self.type_ == other.type_
 
+    def describe(self, value, reason) -> str:
+        if reason == "is-a-string":
+            return f"`{value!r}` is a string or bytes, not a sequence"
+        elif reason == "not-iterable":
+            return f"`{value!r}` is not iterable"
+        else:
+            raise ValueError(f"Unknown reason: {reason}")
+
     @cython.cfunc
     def match(self, values, ctx: Context):
         if isinstance(values, (str, bytes)):
-            raise NoMatchError()
+            raise MatchError(self, values, "is-a-string")
 
         # could initialize the result list with the length of values
         result: list = []
         try:
             for item in values:
                 result.append(self.item.match(item, ctx))
-        except TypeError:
-            raise NoMatchError()
+        except TypeError as exc:
+            raise MatchError(self, values, "not-iterable") from exc
 
         return self.type_.match(result, ctx)
 
@@ -1182,10 +1271,13 @@ class MappingOf(Pattern):
             and self.type_ == other.type_
         )
 
+    def describe(self, value, reason) -> str:
+        return f"`{value!r}` is not a mapping"
+
     @cython.cfunc
     def match(self, value, ctx: Context):
         if not isinstance(value, Mapping):
-            raise NoMatchError()
+            raise MatchError(self, value)
 
         result = {}
         for k, v in value.items():
@@ -1229,7 +1321,10 @@ class Custom(Pattern):
 
     @cython.cfunc
     def match(self, value, ctx: Context):
-        return self.func(value, **ctx)
+        try:
+            return self.func(value, **ctx)
+        except ValueError as exc:
+            raise MatchError(self, value) from exc
 
 
 @cython.final
@@ -1368,10 +1463,13 @@ class ObjectOf1(Pattern):
             and self.pattern1 == other.pattern1
         )
 
+    def describe(self, value, reason) -> str:
+        return f"{value!r} is not an instance of {self.type_!r}"
+
     @cython.cfunc
     def match(self, value, ctx: Context):
         if not isinstance(value, self.type_):
-            raise NoMatchError()
+            raise MatchError(self, value)
 
         attr1 = getattr(value, self.field1)
         result1 = self.pattern1.match(attr1, ctx)
@@ -1411,10 +1509,13 @@ class ObjectOf2(Pattern):
             and self.pattern2 == other.pattern2
         )
 
+    def describe(self, value, reason) -> str:
+        return f"{value!r} is not an instance of {self.type_!r}"
+
     @cython.cfunc
     def match(self, value, ctx: Context):
         if not isinstance(value, self.type_):
-            raise NoMatchError()
+            raise MatchError(self, value)
 
         attr1 = getattr(value, self.field1)
         result1 = self.pattern1.match(attr1, ctx)
@@ -1451,7 +1552,12 @@ class ObjectOf3(Pattern):
         self.pattern3 = pattern(pattern3, **options)
 
     def __repr__(self) -> str:
-        return f"ObjectOf3({self.type_!r}, {self.field1!r}={self.pattern1!r}, {self.field2!r}={self.pattern2!r}, {self.field3!r}={self.pattern3!r})"
+        return (
+            f"ObjectOf3({self.type_!r}, "
+            f"{self.field1!r}={self.pattern1!r}, "
+            f"{self.field2!r}={self.pattern2!r}, "
+            f"{self.field3!r}={self.pattern3!r})"
+        )
 
     def equals(self, other: ObjectOf3) -> bool:
         return (
@@ -1464,10 +1570,13 @@ class ObjectOf3(Pattern):
             and self.pattern3 == other.pattern3
         )
 
+    def describe(self, value, reason) -> str:
+        return f"{value!r} is not an instance of {self.type_!r}"
+
     @cython.cfunc
     def match(self, value, ctx: Context):
         if not isinstance(value, self.type_):
-            raise NoMatchError()
+            raise MatchError(self, value)
 
         attr1 = getattr(value, self.field1)
         result1 = self.pattern1.match(attr1, ctx)
@@ -1521,10 +1630,13 @@ class ObjectOfN(Pattern):
     def equals(self, other: ObjectOfN) -> bool:
         return self.type_ == other.type_ and self.fields == other.fields
 
+    def describe(self, value, reason) -> str:
+        return f"{value!r} is not an instance of {self.type_!r}"
+
     @cython.cfunc
     def match(self, value, ctx: Context):
         if not isinstance(value, self.type_):
-            raise NoMatchError()
+            raise MatchError(self, value)
 
         pattern: Pattern
         changed: dict[str, Any] = {}
@@ -1564,13 +1676,22 @@ class ObjectOfX(Pattern):
             and self.kwargs == other.kwargs
         )
 
+    def describe(self, value, reason) -> str:
+        if reason == "more-args":
+            return (
+                f"{value!r} has fewer {len(value.__match_args__)} "
+                f"positional arguments than required {len(self.args)}"
+            )
+        else:
+            return f"{value!r} does not have the attribute `{reason}`"
+
     @cython.cfunc
     def match(self, value, ctx: Context):
         self.type_.match(value, ctx)
 
-        # the pattern requirest more positional arguments than the object has
+        # the pattern requires more positional arguments than the object has
         if len(value.__match_args__) < len(self.args):
-            raise NoMatchError()
+            raise MatchError(self, value, "more-args")
 
         patterns: dict[str, Pattern] = dict(zip(value.__match_args__, self.args))
         patterns.update(self.kwargs)
@@ -1582,7 +1703,7 @@ class ObjectOfX(Pattern):
             try:
                 attr = getattr(value, name)
             except AttributeError:
-                raise NoMatchError()
+                raise MatchError(self, value, name)
 
             result = pattern.match(attr, ctx)
             if result is not attr:
@@ -1610,10 +1731,26 @@ class CallableWith(Pattern):
     def equals(self, other: CallableWith) -> bool:
         return self.args == other.args and self.return_ == other.return_
 
+    def describe(self, value, reason) -> str:
+        if reason == "is-not-callable":
+            return f"`{value!r}` is not a callable"
+        elif reason == "more-args":
+            return (
+                f"`{value!r}` has more positional arguments than "
+                f"the required {len(self.args)}"
+            )
+        elif reason == "less-args":
+            return (
+                f"`{value!r}` has less positional arguments than "
+                f"the expected {len(self.args)}"
+            )
+        else:
+            raise ValueError(f"Unknown reason: {reason}")
+
     @cython.cfunc
     def match(self, value, ctx: Context):
         if not callable(value):
-            raise NoMatchError()
+            raise MatchError(self, value, "is-not-callable")
 
         sig = inspect.signature(value)
 
@@ -1640,17 +1777,17 @@ class CallableWith(Pattern):
 
         if len(required_positional) > len(self.args):
             # Callable has more positional arguments than expected")
-            raise NoMatchError()
+            raise MatchError(self, value, "more-args")
         elif len(positional) < len(self.args) and not has_varargs:
             # Callable has less positional arguments than expected")
-            raise NoMatchError()
+            raise MatchError(self, value, "less-args")
         else:
             return value
 
 
 @cython.final
 @cython.cclass
-class WithLength(Pattern):
+class Length(Pattern):
     """Pattern that matches if the length of a value is within a given range.
 
     Parameters
@@ -1685,16 +1822,24 @@ class WithLength(Pattern):
     def __repr__(self) -> str:
         return f"{self.__class__.__name__}(at_least={self.at_least}, at_most={self.at_most})"
 
-    def equals(self, other: WithLength) -> bool:
+    def equals(self, other: Length) -> bool:
         return self.at_least == other.at_least and self.at_most == other.at_most
+
+    def describe(self, value, reason) -> str:
+        if reason == "too-short":
+            return f"{value!r} is too short, expected at least {self.at_least} elements"
+        elif reason == "too-long":
+            return f"{value!r} is too long, expected at most {self.at_most} elements"
+        else:
+            raise ValueError(f"Unknown reason: {reason}")
 
     @cython.cfunc
     def match(self, value, ctx: Context):
         length = len(value)
         if self.at_least is not None and length < self.at_least:
-            raise NoMatchError()
+            raise MatchError(self, value, "too-short")
         if self.at_most is not None and length > self.at_most:
-            raise NoMatchError()
+            raise MatchError(self, value, "too-long")
         return value
 
 
@@ -1710,12 +1855,12 @@ def SomeOf(*args, type_=list, **kwargs) -> Pattern:
 class SomeItemsOf(Pattern):
     pattern: SequenceOf
     delimiter: Pattern
-    length: WithLength
+    length: Length
 
     def __init__(self, item, type_=list, **kwargs):
         self.pattern = SequenceOf(item, type_=type_)
         self.delimiter = self.pattern.item
-        self.length = WithLength(**kwargs)
+        self.length = Length(**kwargs)
 
     def __repr__(self) -> str:
         return f"{self.__class__.__name__}({self.pattern!r})"
@@ -1739,13 +1884,13 @@ class SomeChunksOf(Pattern):
 
     pattern: SequenceOf
     delimiter: Pattern
-    length: WithLength
+    length: Length
 
     def __init__(self, *args, type_=list, **kwargs):
         pl = PatternList(args)
         self.pattern = SequenceOf(pl, type_=type_)
         self.delimiter = cython.cast(Pattern, pl.delimiter)
-        self.length = WithLength(**kwargs)
+        self.length = Length(**kwargs)
 
     def __repr__(self) -> str:
         return f"{self.__class__.__name__}({self.pattern!r}, {self.delimiter!r})"
@@ -1758,7 +1903,7 @@ class SomeChunksOf(Pattern):
         for item in values:
             try:
                 self.delimiter.match(item, context)
-            except NoMatchError:
+            except MatchError:
                 chunk.append(item)
             else:
                 if chunk:  # only yield if there are items in the chunk
@@ -1820,6 +1965,16 @@ class FixedPatternList(Pattern):
     def equals(self, other: FixedPatternList) -> bool:
         return self.patterns == other.patterns and self.type_ == other.type_
 
+    def describe(self, value, reason) -> str:
+        if reason == "is-string":
+            return f"`{value!r}` is a string or bytes object"
+        elif reason == "not-iterable":
+            return f"`{value!r}` is not iterable"
+        elif reason == "length-mismatch":
+            return f"`{value!r}` does not have the same length as the pattern"
+        else:
+            raise ValueError(f"Unknown reason: {reason}")
+
     @property
     def delimiter(self) -> Pattern:
         return self.patterns[0]
@@ -1827,15 +1982,15 @@ class FixedPatternList(Pattern):
     @cython.cfunc
     def match(self, values, ctx: Context):
         if isinstance(values, (str, bytes)):
-            raise NoMatchError()
+            raise MatchError(self, values, "is-string")
 
         try:
             values = list(values)
-        except TypeError:
-            raise NoMatchError()
+        except TypeError as exc:
+            raise MatchError(self, values, "not-iterable") from exc
 
         if len(values) != len(self.patterns):
-            raise NoMatchError()
+            raise MatchError(self, values, "length-mismatch")
 
         result = []
         pattern: Pattern
@@ -1862,6 +2017,9 @@ class VariadicPatternList(Pattern):
     def equals(self, other: VariadicPatternList) -> bool:
         return self.patterns == other.patterns and self.type_ == other.type_
 
+    def describe(self, value, reason) -> str:
+        return f"{value!r} does not match the ({self.patterns!r})"
+
     @property
     def delimiter(self) -> Pattern:
         return self.patterns[0]
@@ -1870,7 +2028,7 @@ class VariadicPatternList(Pattern):
     def match(self, value, ctx: Context):
         if not self.patterns:
             if value:
-                raise NoMatchError()
+                raise MatchError(self, value)
             else:
                 return self.type_(value)
 
@@ -1902,7 +2060,7 @@ class VariadicPatternList(Pattern):
 
                     try:
                         res = following.match(item, ctx)
-                    except NoMatchError:
+                    except MatchError:
                         matches.append(item)
                     else:
                         it.rewind()
@@ -1914,7 +2072,7 @@ class VariadicPatternList(Pattern):
                 try:
                     item = next(it)
                 except StopIteration:
-                    raise NoMatchError()
+                    raise MatchError(self, value)
 
                 res = original.match(item, ctx)
                 result.append(res)
@@ -1949,21 +2107,24 @@ class PatternMap1(Pattern):
     def equals(self, other: PatternMap1) -> bool:
         return self.field1 == other.field1 and self.pattern1 == other.pattern1
 
+    def describe(self, value, reason) -> str:
+        return f"{value!r} is not matching {self!r}"
+
     @cython.cfunc
     def match(self, value, ctx: Context):
         # TODO(kszucs): checking for Mapping is slow, speed it up e.g. by putting
         # both len and getitem in a try block catching AttributeError indicating
         # that value is not implementing the mapping ABC
         if not isinstance(value, Mapping):
-            raise NoMatchError()
+            raise MatchError(self, value)
 
         if len(value) != 1:
-            raise NoMatchError()
+            raise MatchError(self, value)
 
         try:
             item1 = value[self.field1]
         except KeyError:
-            raise NoMatchError()
+            raise MatchError(self, value)
 
         result1 = self.pattern1.match(item1, ctx)
 
@@ -1997,19 +2158,22 @@ class PatternMap2(Pattern):
             and self.pattern2 == other.pattern2
         )
 
+    def describe(self, value, reason) -> str:
+        return f"{value!r} is not matching {self!r}"
+
     @cython.cfunc
     def match(self, value, ctx: Context):
         if not isinstance(value, Mapping):
-            raise NoMatchError()
+            raise MatchError(self, value)
 
         if len(value) != 2:
-            raise NoMatchError()
+            raise MatchError(self, value)
 
         try:
             item1 = value[self.field1]
             item2 = value[self.field2]
         except KeyError:
-            raise NoMatchError()
+            raise MatchError(self, value)
 
         result1 = self.pattern1.match(item1, ctx)
         result2 = self.pattern2.match(item2, ctx)
@@ -2039,7 +2203,12 @@ class PatternMap3(Pattern):
         self.pattern3 = pattern(pattern3, **options)
 
     def __repr__(self) -> str:
-        return f"{self.__class__.__name__}({self.field1!r}={self.pattern1!r}, {self.field2!r}={self.pattern2!r}, {self.field3!r}={self.pattern3!r})"
+        return (
+            f"{self.__class__.__name__}("
+            f"{self.field1!r}={self.pattern1!r}, "
+            f"{self.field2!r}={self.pattern2!r}, "
+            f"{self.field3!r}={self.pattern3!r})"
+        )
 
     def equals(self, other: PatternMap3) -> bool:
         return (
@@ -2051,20 +2220,23 @@ class PatternMap3(Pattern):
             and self.pattern3 == other.pattern3
         )
 
+    def describe(self, value, reason) -> str:
+        return f"{value!r} is not matching {self!r}"
+
     @cython.cfunc
     def match(self, value, ctx: Context):
         if not isinstance(value, Mapping):
-            raise NoMatchError()
+            raise MatchError(self, value)
 
         if len(value) != 3:
-            raise NoMatchError()
+            raise MatchError(self, value)
 
         try:
             item1 = value[self.field1]
             item2 = value[self.field2]
             item3 = value[self.field3]
         except KeyError:
-            raise NoMatchError()
+            raise MatchError(self, value)
 
         result1 = self.pattern1.match(item1, ctx)
         result2 = self.pattern2.match(item2, ctx)
@@ -2097,13 +2269,16 @@ class PatternMapN(Pattern):
     def equals(self, other: PatternMapN) -> bool:
         return self.fields == other.fields
 
+    def describe(self, value, reason) -> str:
+        return f"{value!r} is not matching {self!r}"
+
     @cython.cfunc
     def match(self, value, ctx: Context):
         if not isinstance(value, Mapping):
-            raise NoMatchError()
+            raise MatchError(self, value)
 
         if len(value) != len(self.fields):
-            raise NoMatchError()
+            raise MatchError(self, value)
 
         name: str
         pattern: Pattern
@@ -2112,7 +2287,7 @@ class PatternMapN(Pattern):
             try:
                 item = value[name]
             except KeyError:
-                raise NoMatchError()
+                raise MatchError(self, value, "")
             result = pattern.match(item, ctx)
             if result is not item:
                 changed[name] = result
