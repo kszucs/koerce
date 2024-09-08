@@ -32,7 +32,6 @@ from koerce._internal import (
     IsType,
     MappingOf,
     MatchError,
-    NoMatchError,
     Option,
     Parameter,
     Pattern,
@@ -605,7 +604,7 @@ def test_annotated_function():
     assert test(2, 3, c=4) == 9
     assert test(a=2, b=3, c=4) == 9
 
-    with pytest.raises(NoMatchError):
+    with pytest.raises(MatchError):
         test(2, 3, c="4")
 
     @annotated(a=IsType(int))
@@ -645,7 +644,7 @@ def test_annotated_function_with_return_type_annotation():
         return "invalid result"
 
     assert test_ok(2, 3) == 6
-    with pytest.raises(NoMatchError):
+    with pytest.raises(MatchError):
         test_wrong(2, 3)
 
 
@@ -654,14 +653,14 @@ def test_annotated_function_with_keyword_overrides():
     def test(a: int, b: int, c: int = 1):
         return a + b + c
 
-    with pytest.raises(NoMatchError):
+    with pytest.raises(MatchError):
         test(2, 3)
 
     assert test(2, 3.0) == 6.0
 
 
 def test_annotated_function_with_list_overrides():
-    with pytest.raises(NoMatchError):
+    with pytest.raises(MatchError):
 
         @annotated([IsType(int), IsType(int), IsType(str)])
         def test(a: int, b: int, c: int = 1):
@@ -673,12 +672,12 @@ def test_annotated_function_with_list_overrides():
 
     assert test(2, 3) == 6.0
     assert isinstance(test(2, 3), float)
-    with pytest.raises(NoMatchError):
+    with pytest.raises(MatchError):
         test(2, 3, 4)
 
 
 def test_annotated_function_with_list_overrides_and_return_override():
-    with pytest.raises(NoMatchError):
+    with pytest.raises(MatchError):
 
         @annotated([IsType(int), IsType(int), IsType(float)], IsType(float))
         def test(a: int, b: int, c: int = 1):
@@ -689,7 +688,7 @@ def test_annotated_function_with_list_overrides_and_return_override():
         return a + b + c
 
     assert test(2, 3) == 6.1
-    with pytest.raises(NoMatchError):
+    with pytest.raises(MatchError):
         test(2, 3, 4)
 
     assert test(2, 3, 4.0) == 9.0
@@ -700,7 +699,7 @@ def short_str(x, **context):
     if len(x) > 3:
         return x
     else:
-        raise NoMatchError()
+        raise ValueError("string is too short")
 
 
 @pattern
@@ -708,7 +707,7 @@ def endswith_d(x, **context):
     if x.endswith("d"):
         return x
     else:
-        raise NoMatchError()
+        raise ValueError("string does not end with 'd'")
 
 
 def test_annotated_function_with_complex_type_annotations():
@@ -719,11 +718,11 @@ def test_annotated_function_with_complex_type_annotations():
     assert test("abcd", 1) == ("abcd", 1)
     assert test("---d", 1.0) == ("---d", 1.0)
 
-    with pytest.raises(NoMatchError):
+    with pytest.raises(MatchError):
         test("---c", 1)
-    with pytest.raises(NoMatchError):
+    with pytest.raises(MatchError):
         test("123", 1)
-    with pytest.raises(NoMatchError):
+    with pytest.raises(MatchError):
         test("abcd", "qweqwe")
 
 
@@ -755,7 +754,7 @@ def test_annotated_function_with_varargs():
     assert test(1.0, 2.0, 3, 4) == 10.0
     assert test(1.0, 2.0, 3, 4, 5) == 15.0
 
-    with pytest.raises(NoMatchError):
+    with pytest.raises(MatchError):
         test(1.0, 2.0, 3, 4, 5, 6.0)
 
 
@@ -767,7 +766,7 @@ def test_annotated_function_with_varkwargs():
     assert test(1.0, 2.0, c=3, d=4) == 10.0
     assert test(1.0, 2.0, c=3, d=4, e=5) == 15.0
 
-    with pytest.raises(NoMatchError):
+    with pytest.raises(MatchError):
         test(1.0, 2.0, c=3, d=4, e=5, f=6.0)
 
 
@@ -830,7 +829,7 @@ def test_annotated_with_class():
             self.c = c
             self.d = d
 
-    with pytest.raises(NoMatchError):
+    with pytest.raises(MatchError):
         A(1, "2", "d")
 
 
@@ -852,10 +851,10 @@ def test_annotated_with_dataclass():
     assert item.unit_price == 3.0
     assert item.quantity_on_hand == 0
 
-    with pytest.raises(NoMatchError):
+    with pytest.raises(MatchError):
         InventoryItem("widget", "3.0", 10)
 
-    with pytest.raises(NoMatchError):
+    with pytest.raises(MatchError):
         InventoryItem("widget", 3.0, "10")
 
 
@@ -1201,7 +1200,7 @@ def test_annotable_with_self_typehint():
     assert isinstance(node.child.child, RecursiveNode)
     assert node.child.child.child is None
 
-    with pytest.raises(NoMatchError):
+    with pytest.raises(MatchError):
         RecursiveNode(1)
 
 
@@ -1786,7 +1785,7 @@ def test_initialized_attribute_with_validation():
     op.double_a = 3
     assert op.double_a == 3
 
-    with pytest.raises(NoMatchError):
+    with pytest.raises(MatchError):
         op.double_a = "foo"
 
 

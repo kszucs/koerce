@@ -55,6 +55,13 @@ def namespace(module):
     return p, d
 
 
+class NoMatch:
+    __slots__ = ()
+
+    def __init__(self):
+        raise ValueError("Cannot instantiate NoMatch")
+
+
 def koerce(
     pat: Pattern, value: Any, context: Context = None, allow_coercion: bool = False
 ) -> Any:
@@ -89,7 +96,10 @@ def koerce(
 
     """
     pat = pattern(pat, allow_coercion=allow_coercion)
-    return pat.apply(value, context)
+    try:
+        return pat.apply(value, context)
+    except MatchError:
+        return NoMatch
 
 
 _ = var("_")

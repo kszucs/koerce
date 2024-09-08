@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import functools
+import re
 import sys
 from dataclasses import dataclass
 from datetime import datetime
@@ -20,7 +21,7 @@ from typing import (
 import pytest
 from typing_extensions import Self
 
-from koerce import match
+from koerce import NoMatch, match
 from koerce._internal import (
     AllOf,
     AnyOf,
@@ -33,7 +34,6 @@ from koerce._internal import (
     Call,
     CallableWith,
     Capture,
-    CoercionError,
     Custom,
     Deferred,
     DictOf,
@@ -51,7 +51,7 @@ from koerce._internal import (
     IsTypeLazy,
     ListOf,
     MappingOf,
-    NoMatch,
+    MatchError,
     NoneOf,
     Not,
     Nothing,
@@ -84,26 +84,18 @@ def as_datetime(cls, value: Any) -> datetime:
     elif isinstance(value, str):
         return datetime.fromisoformat(value)
     else:
-        raise CoercionError(f"Cannot coerce {value} to datetime")
+        raise ValueError("Cannot coerce to datetime")
 
 
-# class Min(Pattern):
-#     __slots__ = ("min",)
+class Min:
+    def __init__(self, min):
+        self.min = min
 
-#     def __init__(self, min):
-#         self.min = min
-
-#     def __repr__(self):
-#         return f"{self.__class__.__name__}({self.min})"
-
-#     def apply(self, value, context):
-#         if value >= self.min:
-#             return value
-#         else:
-#             return NoMatch
-
-#     def equals(self, other):
-#         return self.min == other.min
+    def __call__(self, value, **context):
+        if value >= self.min:
+            return value
+        else:
+            raise ValueError(f"{value} is less than {self.min}")
 
 
 various_values = [1, "1", 1.0, object, False, None]
@@ -116,7 +108,8 @@ def test_anything(value):
 
 @pytest.mark.parametrize("value", various_values)
 def test_nothing(value):
-    assert Nothing().apply(value) is NoMatch
+    with pytest.raises(MatchError, match="never matches"):
+        Nothing().apply(value)
 
 
 @pytest.mark.parametrize(
@@ -139,86 +132,113 @@ def test_option(inner, default, value, expected):
 @pytest.mark.parametrize("value", various_values)
 def test_identical_to(value):
     assert IdenticalTo(value).apply(value) == value
-    assert IdenticalTo(value).apply(2) is NoMatch
-    assert IdenticalTo(value).apply("2") is NoMatch
-    assert IdenticalTo(value).apply(True) is NoMatch
+
+    with pytest.raises(MatchError, match="is not identical to"):
+        IdenticalTo(value).apply(2)
+
+    with pytest.raises(MatchError, match="is not identical to"):
+        IdenticalTo(value).apply("2")
 
 
 @pytest.mark.parametrize(
-    ["a", "b", "expected"],
+    ["a", "b"],
     [
-        (1, 1, True),
-        (1, 2, False),
-        ("1", "1", True),
-        ("1", "2", False),
-        (1.0, 1.0, True),
-        (1.0, 2.0, False),
-        (1.0, 1, True),
-        (1.0, 2, False),
-        (object, object, True),
-        ("", "", True),
-        (False, False, True),
-        (set(), set(), True),
-        (set(), frozenset(), True),
-        (set(), [], False),
+        (1, 1),
+        ("1", "1"),
+        (1.0, 1.0),
+        (1.0, 1),
+        ("", ""),
+        (False, False),
+        (set(), set()),
+        (set(), frozenset()),
+        (object, object),
     ],
 )
-def test_equal_to(a, b, expected):
+def test_equal_to(a, b):
     pattern = EqValue(a)
-    if expected:
-        assert pattern.apply(b) is b
-    else:
-        assert pattern.apply(b) is NoMatch
+    assert pattern.apply(b) is b
 
 
 @pytest.mark.parametrize(
-    ["typ", "value", "expected"],
+    ["a", "b"],
     [
-        (int, 1, True),
-        (int, 1.0, False),
-        (str, "1", True),
-        (str, 1, False),
-        (int, True, True),
-        (int, False, True),
-        (bool, True, True),
-        (bool, False, True),
-        (bool, 1, False),
-        (bool, 0, False),
-        (list, [1, 2], True),
-        (list, (1, 2), False),
+        (1, 2),
+        ("1", "2"),
+        (1.0, 2.0),
+        (1.0, 2),
+        (set(), []),
     ],
 )
-def test_instance_of(typ, value, expected):
+def test_equal_to_failing(a, b):
+    pattern = EqValue(a)
+    with pytest.raises(MatchError, match="is not equal to"):
+        assert pattern.apply(b)
+
+
+@pytest.mark.parametrize(
+    ["typ", "value"],
+    [
+        (int, 1),
+        (str, "1"),
+        (int, True),
+        (int, False),
+        (bool, True),
+        (bool, False),
+        (list, [1, 2]),
+    ],
+)
+def test_instance_of(typ, value):
     pattern = IsType(typ)
-    if expected:
-        assert pattern.apply(value) is value
-    else:
-        assert pattern.apply(value) is NoMatch
+    assert pattern.apply(value) is value
 
 
 @pytest.mark.parametrize(
-    ("typ", "value", "expected"),
+    ["typ", "value"],
     [
-        (int, 1, True),
-        (int, 1.0, False),
-        (str, "1", True),
-        (str, 1, False),
-        (int, True, False),
-        (int, False, False),
-        (bool, True, True),
-        (bool, False, True),
-        (bool, 1, False),
-        (bool, 0, False),
-        (list, [1, 2], True),
-        (list, (1, 2), False),
+        (int, 1.0),
+        (str, 1),
+        (bool, 1),
+        (bool, 0),
+        (list, (1, 2)),
     ],
 )
-def test_type_of(typ, value, expected):
+def test_instance_of_failing(typ, value):
+    pattern = IsType(typ)
+    with pytest.raises(MatchError, match="is not an instance of"):
+        pattern.apply(value)
+
+
+@pytest.mark.parametrize(
+    ("typ", "value"),
+    [
+        (int, 1),
+        (str, "1"),
+        (bool, True),
+        (bool, False),
+        (list, [1, 2]),
+    ],
+)
+def test_type_of(typ, value):
     pattern = TypeOf(typ)
-    if expected:
-        assert pattern.apply(value) is value
-    else:
-        assert pattern.apply(value) is NoMatch
+    assert pattern.apply(value) is value
+
+
+@pytest.mark.parametrize(
+    ("typ", "value"),
+    [
+        (int, 1.0),
+        (str, 1),
+        (int, True),
+        (int, False),
+        (bool, 1),
+        (bool, 0),
+        (list, (1, 2)),
+    ],
+)
+def test_type_of_failing(typ, value):
+    pattern = TypeOf(int)
+    with pytest.raises(MatchError, match="doesn't have the exact type of"):
+        pattern.apply(1.0)
 
 
 class MyMeta(type): ...
@@ -234,7 +254,8 @@ def test_type_of_with_metaclass():
     p = TypeOf(MyClass)
     v = MyClass()
     assert p.apply(v) is v
-    assert p.apply(MyOtherClass()) is NoMatch
+    with pytest.raises(MatchError, match="doesn't have the exact type of"):
+        p.apply(MyOtherClass())
 
 
 def test_lazy_instance_of():
@@ -243,14 +264,20 @@ def test_lazy_instance_of():
     p = IsTypeLazy("graphlib.TopologicalSorter")
     assert "graphlib" not in sys.modules
 
-    assert p.apply(1) is NoMatch
+    with pytest.raises(
+        MatchError, match="is not an instance of 'graphlib.TopologicalSorter'"
+    ):
+        p.apply(1)
     assert "graphlib" not in sys.modules
 
     import graphlib
 
     sorter = graphlib.TopologicalSorter()
     assert p.apply(sorter) is sorter
-    assert p.apply("foo") is NoMatch
+    with pytest.raises(
+        MatchError, match="is not an instance of 'graphlib.TopologicalSorter'"
+    ):
+        p.apply("foo")
 
 
 # covariance is reqired at the moment
@@ -330,7 +357,8 @@ def test_generic_instance_of_n():
     assert p.apply(v := My(1, 2, "3")) is v
 
     p = IsGenericN(My[int, float])
-    assert p.apply(My(1, 2, "3")) is NoMatch
+    with pytest.raises(MatchError, match="is not an instance of"):
+        p.apply(My(1, 2, "3"))
     assert p.apply(v := My(1, 2.0, "3")) is v
 
     MyAlias = My[T, str]
@@ -341,12 +369,14 @@ def test_generic_instance_of_n():
 def test_generic_instance_of_1():
     p = IsGeneric1(My1[int])
     assert p.apply(v := My1(1)) is v
-    assert p.apply(My1(1.0)) is NoMatch
+    with pytest.raises(MatchError, match="is not an instance of"):
+        p.apply(My1(1.0))
 
 
 def test_generic_instance_of_2():
     p = IsGeneric2(My2[int, float])
-    assert p.apply(My2(1, 2)) is NoMatch
+    with pytest.raises(MatchError, match="is not an instance of"):
+        p.apply(My2(1, 2))
     assert p.apply(v := My2(1, 2.0)) is v
 
 
@@ -372,7 +402,9 @@ def test_as_type():
     p = AsType(int)
     assert p.apply(1) == 1
     assert p.apply("1") == 1
-    assert p.apply("a") is NoMatch
+    msg = re.escape("failed to construct an instance using `int('foo')`")
+    with pytest.raises(MatchError, match=msg):
+        p.apply("foo")
 
 
 def test_coerced_to():
@@ -384,8 +416,8 @@ def test_coerced_to():
     p = AsCoercible(MyInt)
     assert p.apply(1, context={}) == 2
     assert p.apply("1", context={}) == 2
-    with pytest.raises(ValueError):
-        p.apply("foo", context={})
+    with pytest.raises(MatchError, match="`'foo'` cannot be coerced to"):
+        p.apply("foo")
 
 
 def test_generic_coerced_to():
@@ -417,7 +449,7 @@ def test_generic_coerced_to():
             elif T is Integer:
                 value = int(value)
             else:
-                raise CoercionError(f"Cannot coerce {value} to {T}")
+                raise ValueError(f"Cannot coerce {value} to {T}")
             return cls(value, T())
 
         @property
@@ -449,7 +481,8 @@ def test_generic_coerced_to():
 
     p = IsGeneric(Literal[String])
     assert p.apply(s) is s
-    assert p.apply(i) is NoMatch
+    with pytest.raises(MatchError, match="is not an instance of"):
+        p.apply(i)
 
     p = AsCoercibleGeneric(Literal[String])
     assert p.apply("foo") == s
@@ -461,10 +494,12 @@ def test_not():
     p1 = ~IsType(int)
 
     assert p == p1
-    assert p.apply(1, context={}) is NoMatch
+    with pytest.raises(
+        MatchError,
+        match=re.escape("`1` is matching IsType(<class 'int'>) whereas it should not"),
+    ):
+        p.apply(1)
     assert p.apply("foo", context={}) == "foo"
-    # assert p.describe() == "anything except an int"
-    # assert p.describe(plural=True) == "anything except ints"
 
 
 def test_any_of():
@@ -472,14 +507,13 @@ def test_any_of():
     p1 = IsType(int) | IsType(str)
 
     assert p == p1
-    assert p.apply(1, context={}) == 1
-    assert p.apply("foo", context={}) == "foo"
-    assert p.apply(1.0, context={}) is NoMatch
-    # assert p.describe() == "an int or a str"
-    # assert p.describe(plural=True) == "ints or strs"
-
-    p = AnyOf(IsType(int), IsType(str), IsType(float))
-    # assert p.describe() == "an int, a str or a float"
+    assert p.apply(1) == 1
+    assert p.apply("foo") == "foo"
+    msg = re.escape(
+        "`1.0` does not match any of [IsType(<class 'int'>), IsType(<class 'str'>)]"
+    )
+    with pytest.raises(MatchError, match=msg):
+        p.apply(1.0)
 
 
 def test_any_all_of_operator_overloading():
@@ -508,16 +542,18 @@ def test_all_of():
     p1 = IsType(int) & If(negative)
 
     assert p == p1
-    assert p.apply(1) is NoMatch
+    with pytest.raises(MatchError, match="`1` does not satisfy the condition"):
+        p.apply(1)
     assert p.apply(-1) == -1
-    assert p.apply(1.0) is NoMatch
-    # assert p.describe() == "an int then a value that satisfies negative()"
+    with pytest.raises(MatchError, match="`1.0` is not an instance of <class 'int'>"):
+        p.apply(1.0)
 
     p = AllOf(IsType(int), AsType(float), AsType(str))
     assert p.apply(1) == "1.0"
-    assert p.apply(1.0) is NoMatch
-    assert p.apply("1") is NoMatch
-    # assert p.describe() == "an int, coercible to a float then coercible to a str"
+    with pytest.raises(MatchError, match="`1.0` is not an instance of <class 'int'>"):
+        p.apply(1.0)
+    with pytest.raises(MatchError, match="`'1'` is not an instance of <class 'int'>"):
+        p.apply("1")
 
 
 def test_if_function():
@@ -526,32 +562,34 @@ def test_if_function():
 
     p = If(checker)
     assert p.apply(10) == 10
-    assert p.apply(11) is NoMatch
-    # assert p.describe() == "a value that satisfies checker()"
-    # assert p.describe(plural=True) == "values that satisfy checker()"
+    with pytest.raises(MatchError, match="does not satisfy the condition"):
+        p.apply(11)
 
 
 def test_isin():
     p = IsIn([1, 2, 3])
     assert p.apply(1) == 1
-    assert p.apply(4) is NoMatch
-    # assert p.describe() == "in {1, 2, 3}"
-    # assert p.describe(plural=True) == "in {1, 2, 3}"
+    with pytest.raises(MatchError, match="is not in"):
+        assert p.apply(4)
 
 
 def test_sequence_of():
     p = SequenceOf(IsType(str), list)
     assert p.apply(["foo", "bar"]) == ["foo", "bar"]
-    assert p.apply([1, 2]) is NoMatch
-    assert p.apply(1) is NoMatch
-    assert p.apply("string") is NoMatch
-    # assert p.describe() == "a list of strs"
-    # assert p.describe(plural=True) == "lists of strs"
+    with pytest.raises(MatchError, match="`1` is not an instance of <class 'str'>"):
+        p.apply([1, 2])
+    with pytest.raises(MatchError, match="`1` is not iterable"):
+        p.apply(1)
+    with pytest.raises(
+        MatchError, match="`'string'` is a string or bytes, not a sequence"
+    ):
+        p.apply("string")
 
     p = SequenceOf(IsType(int), tuple, allow_coercion=True)
     assert p.apply((1, 2)) == (1, 2)
     assert p.apply([1, 2]) == (1, 2)
-    assert p.apply([1, 2, "3"]) is NoMatch
+    with pytest.raises(MatchError, match="not an instance of"):
+        p.apply([1, 2, "3"])
 
 
 class CustomDict(dict):
@@ -560,13 +598,16 @@ class CustomDict(dict):
 
 def test_mapping_of():
     p = MappingOf(IsType(str), IsType(int))
-    assert p.apply({"foo": 1, "bar": 2}, context={}) == {"foo": 1, "bar": 2}
-    assert p.apply({"foo": 1, "bar": "baz"}, context={}) is NoMatch
-    assert p.apply(1, context={}) is NoMatch
+    assert p.apply({"foo": 1, "bar": 2}) == {"foo": 1, "bar": 2}
+    with pytest.raises(MatchError, match="`'baz'` is not an instance of <class 'int'>"):
+        p.apply({"foo": 1, "bar": "baz"})
+    with pytest.raises(MatchError, match="`1` is not a mapping"):
+        assert p.apply(1) is NoMatch
 
     p = MappingOf(IsType(str), IsType(str), CustomDict, allow_coercion=True)
-    assert p.apply({"foo": "bar"}, context={}) == CustomDict({"foo": "bar"})
-    assert p.apply({"foo": 1}, context={}) is NoMatch
+    assert p.apply({"foo": "bar"}) == CustomDict({"foo": "bar"})
+    with pytest.raises(MatchError, match="`1` is not an instance of <class 'str'>"):
+        p.apply({"foo": 1})
 
 
 def test_frozendict_of():
@@ -582,7 +623,8 @@ def test_capture():
     ctx = {}
 
     p = Capture("result", IsType(int))
-    assert p.apply("10", context=ctx) is NoMatch
+    with pytest.raises(MatchError, match="`'10'` is not an instance of <class 'int'>"):
+        p.apply("10", context=ctx)
     assert ctx == {}
 
     assert p.apply(12, context=ctx) == 12
@@ -597,7 +639,8 @@ def test_capture_with_deferred_and_builder(x):
 
     p = Capture(x, IsType(float))
 
-    assert p.apply(1, context=ctx) is NoMatch
+    with pytest.raises(MatchError, match="`1` is not an instance of <class 'float'>"):
+        p.apply(1, context=ctx)
     assert ctx == {}
 
     assert p.apply(1.0, ctx) == 1.0
@@ -609,10 +652,11 @@ def test_none_of():
         return x < 0
 
     p = NoneOf(IsType(int), If(negative))
-    assert p.apply(1.0, context={}) == 1.0
-    assert p.apply(-1.0, context={}) is NoMatch
-    assert p.apply(1, context={}) is NoMatch
-    # assert p.describe() == "anything except an int or a value that satisfies negative()"
+    assert p.apply(1.0) == 1.0
+    with pytest.raises(MatchError):
+        p.apply(-1.0)
+    with pytest.raises(MatchError):
+        p.apply(1)
 
 
 def test_generic_sequence_of():
@@ -623,7 +667,10 @@ def test_generic_sequence_of():
 
     p = SequenceOf(IsType(str), MyList)
     assert p.apply(["foo", "bar"], context={}) == MyList(["foo", "bar"])
-    assert p.apply("string", context={}) is NoMatch
+    with pytest.raises(
+        MatchError, match="`'string'` is a string or bytes, not a sequence"
+    ):
+        p.apply("string")
 
     p = SequenceOf(IsType(str), tuple)
     assert p == SequenceOf(IsType(str), tuple)
@@ -635,23 +682,31 @@ def test_list_of():
     p = ListOf(IsType(str))
     assert isinstance(p, SequenceOf)
     assert p.apply(["foo", "bar"], context={}) == ["foo", "bar"]
-    assert p.apply([1, 2], context={}) is NoMatch
-    assert p.apply(1, context={}) is NoMatch
-    # assert p.describe() == "a list of strs"
-    # assert p.describe(plural=True) == "lists of strs"
+    with pytest.raises(
+        MatchError, match=re.escape("`1` is not an instance of <class 'str'>")
+    ):
+        p.apply(["foo", 1])
+    with pytest.raises(
+        MatchError, match=re.escape("`1` is not an instance of <class 'str'>")
+    ):
+        p.apply([1, "foo"])
+    with pytest.raises(MatchError, match=re.escape("`1` is not iterable")):
+        p.apply(1)
 
 
 def test_pattern_sequence():
     p = PatternList((IsType(str), IsType(int), IsType(float)))
-    assert p.apply(("foo", 1, 1.0), context={}) == ["foo", 1, 1.0]
-    assert p.apply(["foo", 1, 1.0], context={}) == ["foo", 1, 1.0]
-    assert p.apply(1, context={}) is NoMatch
-    # assert p.describe() == "a tuple of (a str, an int, a float)"
-    # assert p.describe(plural=True) == "tuples of (a str, an int, a float)"
+    assert p.apply(("foo", 1, 1.0)) == ["foo", 1, 1.0]
+    assert p.apply(["foo", 1, 1.0]) == ["foo", 1, 1.0]
+    with pytest.raises(MatchError, match="is not iterable"):
+        p.apply(1)
 
     p = PatternList((IsType(str),))
-    assert p.apply(("foo",), context={}) == ["foo"]
-    assert p.apply(("foo", "bar"), context={}) is NoMatch
+    assert p.apply(("foo",)) == ["foo"]
+    with pytest.raises(
+        MatchError, match="does not have the same length as the pattern"
+    ):
+        assert p.apply(("foo", "bar"))
 
 
 class Foo:
@@ -701,7 +756,8 @@ def test_object_pattern():
     p = Object(Foo, 1, b=2)
     o = Foo(1, 2)
     assert p.apply(o) is o
-    assert p.apply(Foo(1, 3)) is NoMatch
+    with pytest.raises(MatchError, match="`3` is not equal to the expected `2`"):
+        p.apply(Foo(1, 3))
 
     p = Object(Foo, 1, lambda x: x * 2)
     assert p.apply(Foo(1, 2)) == Foo(1, 4)
@@ -755,11 +811,14 @@ def test_object_pattern_complex_type():
     # test that the pattern isn't changing the input object if none of
     # its arguments are changed by subpatterns
     assert p.apply(o) is o
-    assert p.apply(Foo(1, 2)) is NoMatch
-    assert p.apply(Bar(1, 3)) is NoMatch
+    with pytest.raises(MatchError):
+        p.apply(Foo(1, 2))
+    with pytest.raises(MatchError):
+        p.apply(Bar(1, 3))
 
     p = Object(Not(Foo), 1, b=2)
-    assert p.apply(Bar(1, 2)) is NoMatch
+    with pytest.raises(MatchError):
+        p.apply(Bar(1, 2))
 
 
 def test_object_pattern_from_instance_of():
@@ -815,7 +874,9 @@ def test_object_pattern_matching_order():
     a = Var("a")
     p = Object(Foo, Capture(a, IsType(int)), c=a)
 
-    assert p.apply(Foo(1, 2, 3)) is NoMatch
+    with pytest.raises(MatchError, match=re.escape("`3` is not equal to deferred $a")):
+        p.apply(Foo(1, 2, 3))
+
     assert p.apply(Foo(1, 2, 1)) == Foo(1, 2, 1)
 
 
@@ -828,14 +889,17 @@ def test_object_pattern_matching_dictionary_field():
     pattern = Object(Bar, 1, d={})
     assert pattern.apply(a) is a
     assert pattern.apply(b) is b
-    assert pattern.apply(c) is NoMatch
+    with pytest.raises(MatchError):
+        pattern.apply(c)
 
     pattern = Object(Bar, 1, d=None)
-    assert pattern.apply(a) is NoMatch
+    with pytest.raises(MatchError):
+        pattern.apply(a)
     assert pattern.apply(c) is c
 
     pattern = Object(Bar, 1, d={"foo": 1})
-    assert pattern.apply(a) is NoMatch
+    with pytest.raises(MatchError):
+        pattern.apply(a)
     assert pattern.apply(d) is d
 
 
@@ -852,50 +916,60 @@ def test_object_pattern_requires_its_arguments_to_match():
     # the the pattern still doesn't match when it requires more positional
     # arguments than the object `__match_args__` has
     pattern = Object(IsType(Empty), "a")
-    assert pattern.apply(Empty()) is NoMatch
+    with pytest.raises(
+        MatchError, match="has fewer 0 positional arguments than required 1"
+    ):
+        pattern.apply(Empty())
 
     pattern = Object(IsType(Empty), a="a")
-    assert pattern.apply(Empty()) is NoMatch
+    with pytest.raises(MatchError, match="does not have the attribute `a`"):
+        pattern.apply(Empty())
 
 
 def test_pattern_list():
     p = PatternList([1, 2, IsType(int), SomeOf(...)])
-    assert p.apply([1, 2, 3, 4, 5], context={}) == [1, 2, 3, 4, 5]
-    assert p.apply([1, 2, 3, 4, 5, 6], context={}) == [1, 2, 3, 4, 5, 6]
-    assert p.apply([1, 2, 3, 4], context={}) == [1, 2, 3, 4]
-    assert p.apply([1, 2, "3", 4], context={}) is NoMatch
+    assert p.apply([1, 2, 3, 4, 5]) == [1, 2, 3, 4, 5]
+    assert p.apply([1, 2, 3, 4, 5, 6]) == [1, 2, 3, 4, 5, 6]
+    assert p.apply([1, 2, 3, 4]) == [1, 2, 3, 4]
+    with pytest.raises(MatchError, match="`'3'` is not an instance of <class 'int'>"):
+        p.apply([1, 2, "3", 4])
 
     # subpattern is a simple pattern
     p = PatternList([1, 2, AsType(int), SomeOf(...)])
-    assert p.apply([1, 2, 3.0, 4.0, 5.0], context={}) == [1, 2, 3, 4.0, 5.0]
+    assert p.apply([1, 2, 3.0, 4.0, 5.0]) == [1, 2, 3, 4.0, 5.0]
 
     # subpattern is a sequence
     p = PatternList([1, 2, 3, SomeOf(AsType(int), at_least=1)])
-    assert p.apply([1, 2, 3, 4.0, 5.0], context={}) == [1, 2, 3, 4, 5]
+    assert p.apply([1, 2, 3, 4.0, 5.0]) == [1, 2, 3, 4, 5]
 
 
 def test_pattern_list_from_tuple_typehint():
     p = Pattern.from_typehint(tuple[str, int, float], allow_coercion=False)
     assert p == PatternList([IsType(str), IsType(int), IsType(float)], type_=tuple)
-    assert p.apply(["foo", 1, 2.0], context={}) == ("foo", 1, 2.0)
-    assert p.apply(("foo", 1, 2.0), context={}) == ("foo", 1, 2.0)
-    assert p.apply(["foo", 1], context={}) is NoMatch
-    assert p.apply(["foo", 1, 2.0, 3.0], context={}) is NoMatch
+    assert p.apply(["foo", 1, 2.0]) == ("foo", 1, 2.0)
+    assert p.apply(("foo", 1, 2.0)) == ("foo", 1, 2.0)
+    with pytest.raises(MatchError):
+        p.apply(["foo", 1])
+    with pytest.raises(MatchError):
+        p.apply(["foo", 1, 2.0, 3.0])
 
     class MyTuple(tuple):
         pass
 
     p = Pattern.from_typehint(MyTuple[int, bool], allow_coercion=False)
     assert p == PatternList([IsType(int), IsType(bool)], type_=MyTuple)
-    assert p.apply([1, True], context={}) == MyTuple([1, True])
-    assert p.apply(MyTuple([1, True]), context={}) == MyTuple([1, True])
-    assert p.apply([1, 2], context={}) is NoMatch
+    assert p.apply([1, True]) == MyTuple([1, True])
+    assert p.apply(MyTuple([1, True])) == MyTuple([1, True])
+    with pytest.raises(MatchError):
+        p.apply([1, 2])
 
     p = Pattern.from_typehint(tuple[str, int, float], allow_coercion=True)
-    assert p.apply(["foo", 1, 2.0], context={}) == ("foo", 1, 2.0)
-    assert p.apply(["foo", 1, 2], context={}) == ("foo", 1, 2.0)
-    assert p.apply(["foo", 1], context={}) is NoMatch
-    assert p.apply(["foo", 1, 2.0, 3.0], context={}) is NoMatch
+    assert p.apply(["foo", 1, 2.0]) == ("foo", 1, 2.0)
+    assert p.apply(["foo", 1, 2]) == ("foo", 1, 2.0)
+    with pytest.raises(MatchError):
+        p.apply(["foo", 1])
+    with pytest.raises(MatchError):
+        p.apply(["foo", 1, 2.0, 3.0])
 
 
 def test_pattern_list_unpack():
@@ -1206,7 +1280,7 @@ def test_various_patterns(pattern, value, expected):
         (IsType(bool), "foo"),
         (IsType(str), True),
         (IsType(int), 8.1),
-        # (Min(3), 2),
+        (pattern(Min(3)), 2),
         (IsType(int), None),
         (IsType(float), 1),
         (IsIn(["a", "b"]), "c"),
@@ -1214,14 +1288,15 @@ def test_various_patterns(pattern, value, expected):
         (IsIn({"a": 1, "b": 2}), "d"),
         (TupleOf(IsType(int)), (1, 2.0, 3)),
         (ListOf(IsType(str)), ["a", "b", None]),
-        # (AnyOf(IsType(str), Min(4)), 3.14),
-        # (AnyOf(InstanceOf(str), Min(10)), 9),
-        # (AllOf(InstanceOf(int), Min(3), Min(8)), 7),
+        (AnyOf(IsType(str), Min(4)), 3.14),
+        (AnyOf(Is(str), Min(10)), 9),
+        (AllOf(Is(int), Min(3), Min(8)), 7),
         (DictOf(IsType(int), IsType(str)), {"a": 1, "b": 2}),
     ],
 )
 def test_various_not_matching_patterns(pattern, value):
-    assert pattern.apply(value, context={}) is NoMatch
+    with pytest.raises(MatchError):
+        pattern.apply(value, context={})
 
 
 @pattern
@@ -1338,7 +1413,11 @@ def test_pattern_from_self_typehint():
     assert isinstance(result[0], MyClass)
     assert isinstance(result[1], MyClass)
 
-    assert p.apply([MyClass(), 1]) is NoMatch
+    with pytest.raises(
+        MatchError,
+        match="`1` is not an instance of 'koerce.tests.test_patterns.MyClass'",
+    ):
+        p.apply([MyClass(), 1])
 
 
 class PlusOne:
@@ -1383,7 +1462,11 @@ def test_pattern_from_coercible_protocol():
     s = Pattern.from_typehint(PlusOneRaise, allow_coercion=False)
     assert s == IsType(PlusOneRaise)
     assert s.apply(PlusOneRaise(10), context={}) == PlusOneRaise(10)
-    assert s.apply(1) is NoMatch
+    msg = re.escape(
+        "`1` is not an instance of <class 'koerce.tests.test_patterns.PlusOneRaise'>"
+    )
+    with pytest.raises(MatchError, match=msg):
+        s.apply(1)
 
 
 def test_pattern_coercible_bypass_coercion():
@@ -1391,8 +1474,11 @@ def test_pattern_coercible_bypass_coercion():
     # bypass coercion since it's already an instance of SomethingRaise
     assert s.apply(PlusOneRaise(10), context={}) == PlusOneRaise(10)
     # but actually call __coerce__ if it's not an instance
-    with pytest.raises(ValueError, match="raise on coercion"):
-        s.apply(10, context={})
+    msg = re.escape(
+        "`10` cannot be coerced to <class 'koerce.tests.test_patterns.PlusOneRaise'>"
+    )
+    with pytest.raises(MatchError, match=msg):
+        s.apply(10)
 
 
 def test_pattern_coercible_checks_type():
@@ -1402,7 +1488,11 @@ def test_pattern_coercible_checks_type():
     assert s.apply(1, context={}) == PlusOneChild(2)
 
     assert PlusTwo.__coerce__(1) == 3
-    assert v.apply(1, context={}) is NoMatch
+    msg = re.escape(
+        "`PlusTwo.__coerce__(3)` did not return an instance of <class 'koerce.tests.test_patterns.PlusTwo'>"
+    )
+    with pytest.raises(MatchError, match=msg):
+        v.apply(1)
 
 
 class DoubledList(list[T]):
@@ -1503,7 +1593,8 @@ def test_callable_with():
         return c
 
     p = CallableWith([IsType(int), IsType(str)])
-    assert p.apply(10, context={}) is NoMatch
+    with pytest.raises(MatchError, match="is not a callable"):
+        assert p.apply(10)
 
     msg = "Callable has mandatory keyword-only arguments which cannot be specified"
     with pytest.raises(TypeError, match=msg):
@@ -1515,7 +1606,9 @@ def test_callable_with():
 
     # Callable has less positional arguments than expected
     p = CallableWith([IsType(int)] * 4)
-    assert p.apply(func_with_kwargs, context={}) is NoMatch
+    msg = "has less positional arguments than the expected 4"
+    with pytest.raises(MatchError, match=msg):
+        assert p.apply(func_with_kwargs)
 
     p = CallableWith([IsType(int)] * 4, IsType(int))
     wrapped = p.apply(func_with_args, context={})
@@ -1540,7 +1633,10 @@ def test_callable_with_default_arguments():
     h = functools.partial(f, c="0")
 
     p = Pattern.from_typehint(Callable[[int, str], int])
-    assert p.apply(f) is NoMatch
+    with pytest.raises(
+        MatchError, match="has more positional arguments than the required 2"
+    ):
+        p.apply(f)
     assert p.apply(g) == g
     assert p.apply(h) == h
 
@@ -1557,24 +1653,36 @@ def test_instance_of_with_metaclass():
     my_instance = Class()
     my_other_instance = OtherClass()
 
-    assert IsType(Class).apply(my_instance, context={}) == my_instance
-    assert IsType(OtherClass).apply(my_other_instance, context={}) == my_other_instance
+    assert IsType(Class).apply(my_instance) == my_instance
+    assert IsType(OtherClass).apply(my_other_instance) == my_other_instance
 
-    assert IsType(Class).apply(my_other_instance, context={}) == NoMatch
-    assert IsType(OtherClass).apply(my_instance, context={}) == NoMatch
+    with pytest.raises(MatchError):
+        assert IsType(Class).apply(my_other_instance)
+    with pytest.raises(MatchError):
+        assert IsType(OtherClass).apply(my_instance)
 
 
 def test_as_dispatch():
     p = AsDispatch(datetime)
     assert p.apply(datetime(2021, 1, 1)) == datetime(2021, 1, 1)
     assert p.apply("2021-01-01") == datetime(2021, 1, 1)
-    assert p.apply(3.14) is NoMatch
+    with pytest.raises(
+        MatchError, match="failed to construct <class 'datetime.datetime'> from `3.14`"
+    ):
+        p.apply(3.14)
 
     p = pattern(datetime)
     assert p.apply(datetime(2021, 1, 1)) == datetime(2021, 1, 1)
-    assert p.apply("2021-01-01") is NoMatch
+    with pytest.raises(
+        MatchError,
+        match="`'2021-01-01'` is not an instance of <class 'datetime.datetime'>",
+    ):
+        p.apply("2021-01-01")
 
     p = pattern(datetime, allow_coercion=True)
     assert p.apply(datetime(2021, 1, 1)) == datetime(2021, 1, 1)
     assert p.apply("2021-01-01") == datetime(2021, 1, 1)
-    assert p.apply(3.14) is NoMatch
+    with pytest.raises(
+        MatchError, match="failed to construct <class 'datetime.datetime'> from `3.14`"
+    ):
+        p.apply(3.14)
