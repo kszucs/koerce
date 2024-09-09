@@ -11,6 +11,7 @@ from typing import (
     Any,
     ClassVar,
     ForwardRef,
+    Generic,
     Literal,
     Optional,
     TypeVar,
@@ -31,6 +32,8 @@ from .utils import (
     get_type_params,
     is_typehint,
 )
+
+T = TypeVar("T")
 
 Context = dict[str, Any]
 
@@ -94,10 +97,15 @@ class Pattern:
                 if allow_coercion:
                     if hasattr(annot, "__coerce__"):
                         return AsCoercible(annot)
-                    with suppress(TypeError):
-                        return AsType(annot)
-                    with suppress(TypeError):
-                        return AsDispatch(annot)
+                    elif issubclass(annot, bool):
+                        return AsBool()
+                    elif issubclass(annot, int):
+                        return AsInt()
+                    elif issubclass(annot, (float, list, tuple, dict, set)):
+                        return AsBuiltin(annot)
+                    else:
+                        with suppress(TypeError):
+                            return AsType(annot)
                 return IsType(annot)
             elif isinstance(annot, TypeVar):
                 # if the typehint is a type variable we try to construct a
@@ -120,8 +128,10 @@ class Pattern:
                 return IsTypeLazy(annot.__forward_arg__)
             else:
                 raise TypeError(f"Cannot create validator from annotation {annot!r}")
-        # elif origin is CoercedTo:
-        #     return CoercedTo(args[0])
+        elif origin is Is:
+            return Pattern.from_typehint(args[0], allow_coercion=False)
+        elif origin is As:
+            return Pattern.from_typehint(args[0], allow_coercion=True)
         elif origin is Literal:
             # for literal types we check the value against the literal values
             return IsIn(args)
@@ -177,11 +187,8 @@ class Pattern:
         elif isinstance(origin, GenericMeta):
             # construct a validator for the generic type, see the specific
             # Generic* validators for more details
-            if allow_coercion:
-                if hasattr(origin, "__coerce__") and args:
-                    return AsCoercibleGeneric(annot)
-                with suppress(TypeError):
-                    return AsType(annot)
+            if allow_coercion and hasattr(origin, "__coerce__") and args:
+                return AsCoercibleGeneric(annot)
             return IsGeneric(annot)
         else:
             raise TypeError(
@@ -198,7 +205,8 @@ class Pattern:
 
     def describe(self, value, reason) -> str: ...
 
-    def __repr__(self) -> str: ...
+    def __repr__(self) -> str:
+        return f"{self.__class__.__name__}()"
 
     def __eq__(self, other) -> bool:
         return type(self) is type(other) and self.equals(other)
@@ -278,9 +286,6 @@ class Pattern:
 @cython.final
 @cython.cclass
 class Anything(Pattern):
-    def __repr__(self) -> str:
-        return "Anything()"
-
     def equals(self, other: Anything) -> bool:
         return True
 
@@ -299,9 +304,6 @@ _any = Anything()
 @cython.final
 @cython.cclass
 class Nothing(Pattern):
-    def __repr__(self) -> str:
-        return "Nothing()"
-
     def equals(self, other: Nothing) -> bool:
         return True
 
@@ -438,9 +440,12 @@ class TypeOf(Pattern):
             raise MatchError(self, value)
 
 
-@cython.ccall
-def Is(type_: Any):
-    return Pattern.from_typehint(type_, allow_coercion=False)
+class Is(Generic[T]):
+    def __new__(cls, type_) -> Pattern:
+        if isinstance(type_, tuple):
+            return IsType(type_)
+        else:
+            return Pattern.from_typehint(type_, allow_coercion=False)
 
 
 @cython.final
@@ -708,61 +713,76 @@ class SubclassOf(Pattern):
             raise MatchError(self, value)
 
 
-@cython.ccall
-def As(type_: Any) -> Pattern:
-    return Pattern.from_typehint(type_, allow_coercion=True)
+class As(Generic[T]):
+    def __new__(cls, type_) -> Self:
+        return Pattern.from_typehint(type_, allow_coercion=True)
+
+
+@cython.final
+@cython.cclass
+class AsBool(Pattern):
+    def equals(self, other: AsBool) -> bool:
+        return True
+
+    def describe(self, value, reason) -> str:
+        return f"Cannot losslessly convert {value!r} to a boolean."
+
+    @cython.cfunc
+    def match(self, value, ctx: Context):
+        if isinstance(value, bool):
+            # Check if the value is already a boolean
+            return value
+        if value is None:
+            raise MatchError(self, value)
+        if isinstance(value, int):
+            # Allow conversion only for values clearly boolean-like (0, 1, "true", "false", etc.)
+            if value == 0:
+                return False
+            elif value == 1:
+                return True
+        if isinstance(value, str):
+            lowered = value.lower()
+            if lowered == "true" or lowered == "1":
+                return True
+            elif lowered == "false" or lowered == "0":
+                return False
+        raise MatchError(self, value)
+
+
+@cython.final
+@cython.cclass
+class AsInt(Pattern):
+    def equals(self, other: AsInt) -> bool:
+        return True
+
+    def describe(self, value, reason) -> str:
+        return f"Cannot losslessly convert {value!r} to an integer."
+
+    @cython.cfunc
+    def match(self, value, ctx: Context):
+        if isinstance(value, int):
+            # Check if the value is already an integer
+            return value
+        if value is None:
+            raise MatchError(self, value)
+        if isinstance(value, float) and value.is_integer():
+            # Check if it's a float but an integer in essence (e.g., 5.0 -> 5)
+            return int(value)
+        if isinstance(value, str):
+            # Check if it's a string representation of an integer
+            try:
+                # Check if converting to int and back doesn't change the value
+                if float(value).is_integer():
+                    return int(value)
+            except ValueError:
+                pass
+        raise MatchError(self, value)
 
 
 @cython.final
 @cython.cclass
 class AsType(Pattern):
-    type_: Any
-    _registry: ClassVar[tuple[type, ...]] = (
-        int,
-        str,
-        float,
-        tuple,
-        list,
-        dict,
-    )
-
-    def __init__(self, type_: Any):
-        if not issubclass(type_, self._registry):
-            raise TypeError(f"Doesn't know how to coerce {type_}")
-        self.type_ = type_
-
-    def __repr__(self) -> str:
-        return f"{self.__class__.__name__}({self.type_!r})"
-
-    def equals(self, other: AsType) -> bool:
-        return self.type_ == other.type_
-
-    def describe(self, value, reason) -> str:
-        if reason == "is-none":
-            return f"passed value is None and cannot be coerced to {self.type_!r}"
-        elif reason == "failed-to-coerce":
-            return f"failed to construct an instance using `{self.type_.__name__}({value!r})`"
-        else:
-            raise ValueError(f"Unknown reason: {reason}")
-
-    @cython.cfunc
-    def match(self, value, ctx: Context):
-        if isinstance(value, self.type_):
-            return value
-        elif value is None:
-            raise MatchError(self, value, "is-none")
-
-        try:
-            return self.type_(value)
-        except ValueError as exc:
-            raise MatchError(self, value, "failed-to-coerce") from exc
-
-
-@cython.final
-@cython.cclass
-class AsDispatch(Pattern):
     _registry: ClassVar[dict[type, Any]] = {}
-
     type_: Any
     func: Any
 
@@ -794,12 +814,12 @@ class AsDispatch(Pattern):
                     cls._registry[type_] = impl
                 return impl
 
-        raise TypeError(f"Could not find a custom coerce implementation for {type_}")
+        raise TypeError(f"Could not find a coerce implementation for {type_}")
 
     def __repr__(self) -> str:
-        return f"{self.__class__.__name__}()"
+        return f"{self.__class__.__name__}({self.type_!r})"
 
-    def equals(self, other: AsDispatch) -> bool:
+    def equals(self, other: AsType) -> bool:
         return self.type_ == other.type_ and self.func == other.func
 
     def describe(self, value, reason) -> str:
@@ -811,6 +831,35 @@ class AsDispatch(Pattern):
             return value
         try:
             return self.func(self.type_, value)
+        except Exception as exc:
+            raise MatchError(self, value) from exc
+
+
+@cython.final
+@cython.cclass
+class AsBuiltin(Pattern):
+    type_: Any
+
+    def __init__(self, type_: Any):
+        self.type_ = type_
+
+    def __repr__(self) -> str:
+        return f"{self.__class__.__name__}({self.type_!r})"
+
+    def equals(self, other: AsBuiltin) -> bool:
+        return self.type_ == other.type_
+
+    def describe(self, value, reason) -> str:
+        return f"`{value!r}` cannot be coerced to builtin type {self.type_!r}"
+
+    @cython.cfunc
+    def match(self, value, ctx: Context):
+        if isinstance(value, self.type_):
+            return value
+        if value is None:
+            raise MatchError(self, value)
+        try:
+            return self.type_(value)
         except Exception as exc:
             raise MatchError(self, value) from exc
 
@@ -1827,9 +1876,11 @@ class Length(Pattern):
 
     def describe(self, value, reason) -> str:
         if reason == "too-short":
-            return f"{value!r} is too short, expected at least {self.at_least} elements"
+            return (
+                f"`{value!r}` is too short, expected at least {self.at_least} elements"
+            )
         elif reason == "too-long":
-            return f"{value!r} is too long, expected at most {self.at_most} elements"
+            return f"`{value!r}` is too long, expected at most {self.at_most} elements"
         else:
             raise ValueError(f"Unknown reason: {reason}")
 
@@ -2148,7 +2199,11 @@ class PatternMap2(Pattern):
         self.pattern2 = pattern(pattern2, **options)
 
     def __repr__(self) -> str:
-        return f"{self.__class__.__name__}({self.field1!r}={self.pattern1!r}, {self.field2!r}={self.pattern2!r})"
+        return (
+            f"{self.__class__.__name__}("
+            f"{self.field1!r}={self.pattern1!r}, "
+            f"{self.field2!r}={self.pattern2!r})"
+        )
 
     def equals(self, other: PatternMap2) -> bool:
         return (

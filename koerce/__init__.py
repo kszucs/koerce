@@ -55,6 +55,15 @@ def namespace(module):
     return p, d
 
 
+def replace(matcher):
+    """More convenient syntax for replacing a value with the output of a function."""
+
+    def decorator(replacer):
+        return Replace(matcher, replacer)
+
+    return decorator
+
+
 class NoMatch:
     __slots__ = ()
 

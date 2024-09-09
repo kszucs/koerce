@@ -13,6 +13,7 @@ from koerce import (
     match,
     namespace,
     pattern,
+    replace,
     var,
 )
 
@@ -23,7 +24,8 @@ def test_match_strictness():
 
     assert match(int, 1, allow_coercion=False) == 1
     assert match(int, 1.1, allow_coercion=False) is NoMatch
-    assert match(int, 1.1, allow_coercion=True) == 1
+    # not lossless
+    assert match(int, 1.1, allow_coercion=True) is NoMatch
 
     # default is allow_coercion=False
     assert match(int, 1.1) is NoMatch
@@ -65,3 +67,12 @@ def test_namespace():
     point_builder = builder(point_deferred)
     assert isinstance(point_deferred, Deferred)
     assert point_builder == Call(Point, 1, 2)
+
+
+def test_replace_decorator():
+    @replace(int)
+    def sub(_):
+        return _ - 1
+
+    assert match(sub, 1) == 0
+    assert match(sub, 2) == 1

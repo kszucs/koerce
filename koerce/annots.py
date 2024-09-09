@@ -83,12 +83,14 @@ class Parameter:
         if kind is _VAR_POSITIONAL:
             self.pattern = TupleOf(pattern)
         elif kind is _VAR_KEYWORD:
+            # TODO(kszucs): remove FrozenDict?
             self.pattern = FrozenDictOf(_any, pattern)
         else:
             self.pattern = _ensure_pattern(pattern)
 
         # validate that the default value matches the pattern
         if default is not EMPTY:
+            # TODO(kszucs): try/except MatchError raise an error indicating that the default value doesn't match the pattern
             self.default_ = self.pattern.match(default, {})
         else:
             self.default_ = default
@@ -475,7 +477,7 @@ def annotated(_1=None, _2=None, _3=None, **kwargs):
         func,
         arg_patterns=patterns or kwargs,
         return_pattern=return_pattern,
-        allow_coercion=False,
+        allow_coercion=True,
     )
     pat: Pattern = PatternMap(
         {name: param.pattern for name, param in sig.parameters.items()}
@@ -550,12 +552,12 @@ else:
 @cython.cclass
 class AnnotableSpec:
     # make them readonly
-    initable: cython.bint
-    hashable: cython.bint
-    immutable: cython.bint
-    signature: Signature
-    attributes: dict[str, Attribute]
-    hasattribs: cython.bint
+    initable = cython.declare(cython.bint, visibility="readonly")
+    hashable = cython.declare(cython.bint, visibility="readonly")
+    immutable = cython.declare(cython.bint, visibility="readonly")
+    signature = cython.declare(Signature, visibility="readonly")
+    attributes = cython.declare(dict[str, Attribute], visibility="readonly")
+    hasattribs = cython.declare(cython.bint, visibility="readonly")
 
     def __init__(
         self,
@@ -594,10 +596,11 @@ class AnnotableSpec:
             this = cls.__new__(cls)
             for name, param in self.signature.parameters.items():
                 __setattr__(this, name, param.pattern.match(bound[name], ctx))
-            if self.hasattribs:
-                self.init_attributes(this)
+            # TODO(kszucs): test order ot precomputes and attributes calculations
             if self.hashable:
                 self.init_precomputes(this)
+            if self.hasattribs:
+                self.init_attributes(this)
             return this
 
     @cython.cfunc
@@ -621,48 +624,98 @@ class AnnotableSpec:
         __setattr__(this, "__precomputed_hash__", hashvalue)
 
 
-class AnnotableMeta(type):
+class AbstractMeta(type):
+    """Base metaclass for many of the ibis core classes.
+
+    Enforce the subclasses to define a `__slots__` attribute and provide a
+    `__create__` classmethod to change the instantiation behavior of the class.
+
+    Support abstract methods without extending `abc.ABCMeta`. While it provides
+    a reduced feature set compared to `abc.ABCMeta` (no way to register virtual
+    subclasses) but avoids expensive instance checks by enforcing explicit
+    subclassing.
+    """
+
+    __slots__ = ()
+
+    def __new__(metacls, clsname, bases, dct, **kwargs):
+        # # enforce slot definitions
+        # dct.setdefault("__slots__", ())
+
+        # construct the class object
+        cls = super().__new__(metacls, clsname, bases, dct, **kwargs)
+
+        # calculate abstract methods existing in the class
+        abstracts = {
+            name
+            for name, value in dct.items()
+            if getattr(value, "__isabstractmethod__", False)
+        }
+        for parent in bases:
+            for name in getattr(parent, "__abstractmethods__", set()):
+                value = getattr(cls, name, None)
+                if getattr(value, "__isabstractmethod__", False):
+                    abstracts.add(name)
+
+        # set the abstract methods for the class
+        cls.__abstractmethods__ = frozenset(abstracts)
+
+        return cls
+
+
+# TODO(kszucs): cover immutable inheritance additivity with tests
+class AnnotableMeta(AbstractMeta):
     def __new__(
         metacls,
         clsname,
         bases,
         dct,
         initable=None,
-        hashable=False,
-        immutable=False,
+        hashable=None,
+        immutable=None,
         allow_coercion=True,
         **kwargs,
     ):
-        traits = []
+        # inherit annotable specifications from parent classes
+        spec: AnnotableSpec
+        signatures: list = []
+        attributes: dict[str, Attribute] = {}
+        is_initable: cython.bint
+        is_hashable: cython.bint = hashable is True
+        is_immutable: cython.bint = immutable is True
         if initable is None:
-            # this flag is handled in AnnotableSpec
-            initable = "__init__" in dct or "__new__" in dct
+            is_initable = "__init__" in dct or "__new__" in dct
+        else:
+            is_initable = initable
+        for parent in bases:
+            try:  # noqa: SIM105
+                spec = parent.__spec__
+            except AttributeError:
+                continue
+            is_initable |= spec.initable
+            is_hashable |= spec.hashable
+            is_immutable |= spec.immutable
+            signatures.append(spec.signature)
+            attributes.update(spec.attributes)
+
+        # create the base classes for the new class
+        traits: list[type] = []
+        if is_immutable and immutable is False:
+            raise ValueError(
+                "One of the base classes is immutable so the child class cannot be mutable"
+            )
+        if is_hashable and hashable is False:
+            raise ValueError(
+                "One of the base classes is hashable so this child class must be hashable"
+            )
+        if is_hashable and not is_immutable:
+            raise ValueError("Only immutable classes can be hashable")
         if hashable:
-            if not immutable:
-                raise ValueError("Only immutable classes can be hashable")
             traits.append(Hashable)
         if immutable:
             traits.append(Immutable)
 
-        # inherit signature from parent classes
-        abstracts: set = set()
-        signatures: list = []
-        attributes: dict[str, Attribute] = {}
-        for parent in bases:
-            try:  # noqa: SIM105
-                signatures.append(parent.__signature__)
-            except AttributeError:
-                pass
-            try:  # noqa: SIM105
-                attributes.update(parent.__attributes__)
-            except AttributeError:
-                pass
-            try:  # noqa: SIM105
-                abstracts.update(parent.__abstractmethods__)
-            except AttributeError:
-                pass
-
-        # collection type annotations and convert them to patterns
+        # collect type annotations and convert them to patterns
         slots: list[str] = list(dct.pop("__slots__", []))
         module: str | None = dct.pop("__module__", None)
         qualname: str = dct.pop("__qualname__", clsname)
@@ -688,7 +741,6 @@ class AnnotableMeta(type):
 
         namespace: dict[str, Any] = {}
         parameters: dict[str, Parameter] = {}
-        abstractmethods: set = set()
         for name, value in dct.items():
             if isinstance(value, Parameter):
                 parameters[name] = value
@@ -697,8 +749,6 @@ class AnnotableMeta(type):
                 attributes[name] = value
                 slots.append(name)
             else:
-                if getattr(value, "__isabstractmethod__", False):
-                    abstractmethods.add(name)
                 namespace[name] = value
 
         # merge the annotations with the parent annotations
@@ -706,9 +756,9 @@ class AnnotableMeta(type):
         argnames = tuple(signature.parameters.keys())
         bases = tuple(traits) + bases
         spec = AnnotableSpec(
-            initable=initable,
-            hashable=hashable,
-            immutable=immutable,
+            initable=is_initable,
+            hashable=is_hashable,
+            immutable=is_immutable,
             signature=signature,
             attributes=attributes,
         )
@@ -722,17 +772,7 @@ class AnnotableMeta(type):
             __slots__=tuple(slots),
             __spec__=spec,
         )
-        klass = super().__new__(metacls, clsname, bases, namespace, **kwargs)
-
-        # check whether the inherited abstract methods are implemented by
-        # any of the parent classes, basically recalculating the abstractmethods
-        for name in abstracts:
-            value = getattr(klass, name, None)
-            if getattr(value, "__isabstractmethod__", False):
-                abstractmethods.add(name)
-        klass.__abstractmethods__ = frozenset(abstractmethods)
-
-        return klass
+        return super().__new__(metacls, clsname, bases, namespace, **kwargs)
 
     def __call__(cls, *args, **kwargs):
         spec: AnnotableSpec = cython.cast(AnnotableSpec, cls.__spec__)
@@ -781,10 +821,10 @@ class Annotable(metaclass=AnnotableMeta, initable=False):
         spec: AnnotableSpec = self.__spec__
         for name, value in kwargs.items():
             __setattr__(self, name, value)
-        if spec.hasattribs:
-            spec.init_attributes(self)
         if spec.hashable:
             spec.init_precomputes(self)
+        if spec.hasattribs:
+            spec.init_attributes(self)
 
     def __setattr__(self, name, value) -> None:
         spec: AnnotableSpec = self.__spec__
