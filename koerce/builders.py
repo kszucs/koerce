@@ -47,6 +47,9 @@ class Deferred:
     def __call__(self, *args, **kwargs):
         return Deferred(Call(self, *args, **kwargs))
 
+    # def __contains__(self, item):
+    #     return Deferred(Binop(operator.contains, self, item))
+
     def __invert__(self) -> Deferred:
         return Deferred(Unop(operator.invert, self))
 
@@ -149,6 +152,16 @@ class Deferred:
 
 @cython.cclass
 class Builder:
+    # TODO(kszucs): cover with tests
+    @staticmethod
+    def __coerce__(value):
+        if isinstance(value, Builder):
+            return value
+        elif isinstance(value, Deferred):
+            return value._builder
+        else:
+            raise ValueError(f"Cannot coerce {type(value).__name__!r} to Builder")
+
     def apply(self, ctx: Context):
         return self.build(ctx)
 
@@ -225,7 +238,6 @@ class Just(Builder):
         return self.value
 
 
-@cython.final
 @cython.cclass
 class Var(Builder):
     """Retrieve a value from the context.

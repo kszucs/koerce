@@ -9,7 +9,7 @@ import pytest
 pydantic = pytest.importorskip("pydantic")
 msgspec = pytest.importorskip("msgspec")
 
-from ibis.common.grounds import Annotable as IAnnotable
+# from ibis.common.grounds import Annotable as IAnnotable
 from pydantic import BaseModel, validate_call
 from pydantic_core import SchemaValidator
 from typing_extensions import TypeVar

@@ -27,9 +27,11 @@ from koerce._internal import (
     AnyOf,
     Anything,
     As,
+    AsBool,
+    AsBuiltin,
     AsCoercible,
     AsCoercibleGeneric,
-    AsDispatch,
+    AsInt,
     AsType,
     Call,
     CallableWith,
@@ -77,7 +79,7 @@ from koerce._internal import (
 from koerce.utils import FrozenDict
 
 
-@AsDispatch.register(datetime)
+@AsType.register(datetime)
 def as_datetime(cls, value: Any) -> datetime:
     if isinstance(value, datetime):
         return value
@@ -90,6 +92,9 @@ def as_datetime(cls, value: Any) -> datetime:
 class Min:
     def __init__(self, min):
         self.min = min
+
+    def __eq__(self, other):
+        return isinstance(other, Min) and self.min == other.min
 
     def __call__(self, value, **context):
         if value >= self.min:
@@ -118,10 +123,9 @@ def test_nothing(value):
         (Anything(), None, None, None),
         (Anything(), None, "three", "three"),
         (Anything(), 1, None, 1),
-        (AsType(int), 11, None, 11),
-        (AsType(int), None, None, None),
-        (AsType(int), None, 18, 18),
-        (AsType(str), None, "caracal", "caracal"),
+        (As(int), 11, None, 11),
+        (As(int), None, None, None),
+        (As(int), None, 18, 18),
     ],
 )
 def test_option(inner, default, value, expected):
@@ -334,7 +338,7 @@ def test_is_instance():
 
 
 def test_as_instance():
-    assert As(int) == AsType(int)
+    assert As(int) == AsInt()
     assert As(MyCoercible[int, float]) == AsCoercibleGeneric(MyCoercible[int, float])
 
 
@@ -393,18 +397,71 @@ def test_as():
         def __coerce__(cls, other, T):
             return cls(T(other))
 
-    assert isinstance(As(int), AsType)
+    assert isinstance(As(int), AsInt)
     assert isinstance(As(MyInt), AsCoercible)
     assert isinstance(As(MyGenericInt[int]), AsCoercibleGeneric)
 
 
-def test_as_type():
-    p = AsType(int)
+def test_as_int():
+    p = AsInt()
+    assert p.apply(1) == 1
+    assert p.apply(1.0) == 1
+    assert p.apply("1") == 1
+
+    with pytest.raises(
+        MatchError, match=re.escape("Cannot losslessly convert 'foo' to an integer.")
+    ):
+        p.apply("foo")
+    with pytest.raises(
+        MatchError, match="Cannot losslessly convert 1.1 to an integer."
+    ):
+        p.apply(1.1)
+
+
+def test_as_bool():
+    p = AsBool()
+    assert p.apply(True) is True
+    assert p.apply(False) is False
+    assert p.apply(1) is True
+    assert p.apply(0) is False
+    assert p.apply("1") is True
+    assert p.apply("0") is False
+    assert p.apply("True") is True
+    assert p.apply("False") is False
+    assert p.apply("true") is True
+    assert p.apply("false") is False
+
+    with pytest.raises(
+        MatchError, match="Cannot losslessly convert 'foo' to a boolean."
+    ):
+        p.apply("foo")
+
+
+def test_is_as_typehints():
+    p = Pattern.from_typehint(Is[int], allow_coercion=False)
+    assert p.apply(1) == 1
+    with pytest.raises(MatchError, match="is not an instance of"):
+        p.apply(1.0)
+
+    p = Pattern.from_typehint(Is[int], allow_coercion=True)
+    assert p.apply(1) == 1
+    with pytest.raises(MatchError, match="is not an instance of"):
+        p.apply(1.0)
+
+    p = Pattern.from_typehint(As[int], allow_coercion=False)
     assert p.apply(1) == 1
     assert p.apply("1") == 1
-    msg = re.escape("failed to construct an instance using `int('foo')`")
-    with pytest.raises(MatchError, match=msg):
+    with pytest.raises(MatchError):
         p.apply("foo")
+
+    p = Pattern.from_typehint(As[int], allow_coercion=True)
+    assert p.apply(1) == 1
+    assert p.apply("1") == 1
+    assert p.apply(1.0) == 1
+    with pytest.raises(MatchError):
+        p.apply("foo")
+    with pytest.raises(MatchError):
+        p.apply("1.11")
 
 
 def test_coerced_to():
@@ -548,8 +605,8 @@ def test_all_of():
     with pytest.raises(MatchError, match="`1.0` is not an instance of <class 'int'>"):
         p.apply(1.0)
 
-    p = AllOf(IsType(int), AsType(float), AsType(str))
-    assert p.apply(1) == "1.0"
+    p = AllOf(IsType(int), AsBuiltin(float))
+    assert p.apply(1) == 1.0
     with pytest.raises(MatchError, match="`1.0` is not an instance of <class 'int'>"):
         p.apply(1.0)
     with pytest.raises(MatchError, match="`'1'` is not an instance of <class 'int'>"):
@@ -935,11 +992,11 @@ def test_pattern_list():
         p.apply([1, 2, "3", 4])
 
     # subpattern is a simple pattern
-    p = PatternList([1, 2, AsType(int), SomeOf(...)])
+    p = PatternList([1, 2, AsInt(), SomeOf(...)])
     assert p.apply([1, 2, 3.0, 4.0, 5.0]) == [1, 2, 3, 4.0, 5.0]
 
     # subpattern is a sequence
-    p = PatternList([1, 2, 3, SomeOf(AsType(int), at_least=1)])
+    p = PatternList([1, 2, 3, SomeOf(AsInt(), at_least=1)])
     assert p.apply([1, 2, 3, 4.0, 5.0]) == [1, 2, 3, 4, 5]
 
 
@@ -1340,7 +1397,6 @@ def test_pattern_decorator():
             Callable[[str, int], str],
             CallableWith((IsType(str), IsType(int)), IsType(str)),
         ),
-        # (Callable, InstanceOf(CallableABC)),
     ],
 )
 def test_pattern_from_typehint_no_coercion(annot, expected):
@@ -1350,28 +1406,27 @@ def test_pattern_from_typehint_no_coercion(annot, expected):
 @pytest.mark.parametrize(
     ("annot", "expected"),
     [
-        (int, AsType(int)),
-        (str, AsType(str)),
-        (bool, AsType(bool)),
-        (Optional[int], Option(AsType(int))),
-        (Optional[Union[str, int]], Option(AnyOf(AsType(str), AsType(int)))),
-        (Union[int, str], AnyOf(AsType(int), AsType(str))),
-        # (Annotated[int, Min(3)], AllOf(AsType(int), Min(3))),
-        (list[int], SequenceOf(AsType(int), list)),
+        (int, AsInt()),
+        (bool, AsBool()),
+        (Optional[int], Option(AsInt())),
+        (Optional[Union[str, int]], Option(AnyOf(IsType(str), AsInt()))),
+        (Union[int, str], AnyOf(AsInt(), IsType(str))),
+        (Annotated[int, Min(3)], AllOf(AsInt(), Min(3))),
+        (list[int], SequenceOf(AsInt(), list)),
         (
             tuple[int, float, str],
-            PatternList((AsType(int), AsType(float), AsType(str)), type_=tuple),
+            PatternList((AsInt(), AsBuiltin(float), IsType(str)), type_=tuple),
         ),
-        (tuple[int, ...], TupleOf(AsType(int))),
+        (tuple[int, ...], TupleOf(AsInt())),
         (
             dict[str, float],
-            DictOf(AsType(str), AsType(float)),
+            DictOf(IsType(str), AsBuiltin(float)),
         ),
-        (FrozenDict[str, int], MappingOf(AsType(str), AsType(int), FrozenDict)),
+        (FrozenDict[str, int], MappingOf(IsType(str), AsInt(), FrozenDict)),
         (Literal["alpha", "beta", "gamma"], IsIn(("alpha", "beta", "gamma"))),
         (
             Callable[[str, int], str],
-            CallableWith((AsType(str), AsType(int)), AsType(str)),
+            CallableWith((IsType(str), AsInt()), IsType(str)),
         ),
     ],
 )
@@ -1387,7 +1442,7 @@ def test_pattern_from_typehint_uniontype():
     assert validator == AnyOf(IsType(str), IsType(int), IsType(float))
 
     validator = Pattern.from_typehint(str | int | float, allow_coercion=True)
-    assert validator == AnyOf(AsType(str), AsType(int), AsType(float))
+    assert validator == AnyOf(IsType(str), AsInt(), AsBuiltin(float))
 
 
 def test_pattern_from_coercible_typehint_disable_coercion():
@@ -1541,7 +1596,7 @@ def test_pattern_function():
     # plain types are converted to InstanceOf patterns
     assert pattern(int) == IsType(int)
     assert pattern(int, allow_coercion=False) == IsType(int)
-    assert pattern(int, allow_coercion=True) == AsType(int)
+    assert pattern(int, allow_coercion=True) == AsInt()
     # no matter whether the type implements the coercible protocol or not
     assert pattern(MyNegativeInt) == IsType(MyNegativeInt)
     assert pattern(MyNegativeInt, allow_coercion=True) == AsCoercible(MyNegativeInt)
@@ -1555,7 +1610,7 @@ def test_pattern_function():
 
     # sequence typehints are converted to the appropriate sequence checkers
     assert pattern(List[int], allow_coercion=True) == ListOf(
-        AsType(int), allow_coercion=True
+        AsInt(), allow_coercion=True
     )
     assert pattern(List[int], allow_coercion=False) == ListOf(
         IsType(int), allow_coercion=False
@@ -1563,7 +1618,7 @@ def test_pattern_function():
 
     # spelled out sequences construct a more advanced pattern sequence
     assert pattern([int, str, 1], allow_coercion=True) == PatternList(
-        [AsType(int), AsType(str), EqValue(1)]
+        [AsInt(), IsType(str), EqValue(1)]
     )
     assert pattern([int, str, 1], allow_coercion=False) == PatternList(
         [IsType(int), IsType(str), EqValue(1)]
@@ -1663,7 +1718,7 @@ def test_instance_of_with_metaclass():
 
 
 def test_as_dispatch():
-    p = AsDispatch(datetime)
+    p = AsType(datetime)
     assert p.apply(datetime(2021, 1, 1)) == datetime(2021, 1, 1)
     assert p.apply("2021-01-01") == datetime(2021, 1, 1)
     with pytest.raises(

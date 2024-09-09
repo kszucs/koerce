@@ -383,17 +383,28 @@ assert match(As(MyNumber[float]), 8).value == 8.0
 first argument to a pattern using the `koerce.pattern()` function:
 
 ```py
-from koerce import pattern
+from koerce import pattern, As, Is
 
 assert pattern(int, allow_coercion=False) == Is(int)
 assert pattern(int, allow_coercion=True) == As(int)
 
 assert match(int, 1, allow_coercion=False) == 1
 assert match(int, 1.1, allow_coercion=False) is NoMatch
-assert match(int, 1.1, allow_coercion=True) == 1
+# lossy coercion is not allowed
+assert match(int, 1.1, allow_coercion=True) is NoMatch
 
 # default is allow_coercion=False
 assert match(int, 1.1) is NoMatch
+```
+
+`As[typehint]` and `Is[typehint]` can be used to create patterns:
+
+```py
+from koerce import Pattern, As, Is
+
+assert match(As[int], '1') == 1
+assert match(Is[int], 1) == 1
+assert match(Is[int], '1') is NoMatch
 ```
 
 ### `If` patterns for conditionals

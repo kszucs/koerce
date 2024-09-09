@@ -22,15 +22,16 @@ from typing_extensions import Self
 
 from koerce._internal import (
     EMPTY,
+    AbstractMeta,
     Annotable,
     AnnotableMeta,
     Anything,
-    AsType,
+    As,
     FrozenDictOf,
     Hashable,
     Immutable,
+    Is,
     IsType,
-    MappingOf,
     MatchError,
     Option,
     Parameter,
@@ -753,9 +754,7 @@ def test_annotated_function_with_varargs():
 
     assert test(1.0, 2.0, 3, 4) == 10.0
     assert test(1.0, 2.0, 3, 4, 5) == 15.0
-
-    with pytest.raises(MatchError):
-        test(1.0, 2.0, 3, 4, 5, 6.0)
+    assert test(1.0, 2.0, 3, 4, 5, 6.0) == 21.0
 
 
 def test_annotated_function_with_varkwargs():
@@ -765,9 +764,7 @@ def test_annotated_function_with_varkwargs():
 
     assert test(1.0, 2.0, c=3, d=4) == 10.0
     assert test(1.0, 2.0, c=3, d=4, e=5) == 15.0
-
-    with pytest.raises(MatchError):
-        test(1.0, 2.0, c=3, d=4, e=5, f=6.0)
+    assert test(1.0, 2.0, c=3, d=4, e=5, f=6.0) == 21.0
 
 
 # def test_multiple_validation_failures():
@@ -791,28 +788,28 @@ def test_signature_patterns():
     def func(a: int, b: str, c: str = "0") -> str: ...
 
     sig = Signature.from_callable(func, allow_coercion=True)
-    assert sig.parameters["a"].pattern == AsType(int)
-    assert sig.parameters["b"].pattern == AsType(str)
-    assert sig.parameters["c"].pattern == AsType(str)
-    assert sig.return_pattern == AsType(str)
+    assert sig.parameters["a"].pattern == As(int)
+    assert sig.parameters["b"].pattern == Is(str)
+    assert sig.parameters["c"].pattern == Is(str)
+    assert sig.return_pattern == IsType(str)
 
     def func(a: int, b: str, *args): ...
 
     sig = Signature.from_callable(func)
-    assert sig.parameters["a"].pattern == AsType(int)
-    assert sig.parameters["b"].pattern == AsType(str)
+    assert sig.parameters["a"].pattern == As(int)
+    assert sig.parameters["b"].pattern == Is(str)
     assert sig.parameters["args"].pattern == TupleOf(Anything())
     assert sig.return_pattern == Anything()
 
     def func(a: int, b: str, c: str = "0", *args, **kwargs: int) -> float: ...
 
     sig = Signature.from_callable(func)
-    assert sig.parameters["a"].pattern == AsType(int)
-    assert sig.parameters["b"].pattern == AsType(str)
-    assert sig.parameters["c"].pattern == AsType(str)
+    assert sig.parameters["a"].pattern == As(int)
+    assert sig.parameters["b"].pattern == Is(str)
+    assert sig.parameters["c"].pattern == Is(str)
     assert sig.parameters["args"].pattern == TupleOf(Anything())
-    assert sig.parameters["kwargs"].pattern == FrozenDictOf(Anything(), AsType(int))
-    assert sig.return_pattern == AsType(float)
+    assert sig.parameters["kwargs"].pattern == FrozenDictOf(Anything(), As(int))
+    assert sig.return_pattern == As(float)
 
 
 def test_annotated_with_class():
@@ -839,23 +836,51 @@ def test_annotated_with_dataclass():
     class InventoryItem:
         name: str
         unit_price: float
-        quantity_on_hand: int = 0
+        quantity_on_hand: int = 10
 
-    item = InventoryItem("widget", 3.0, 10)
+    @annotated
+    @dataclass
+    class InventoryItemStrict:
+        name: str
+        unit_price: Is[float]
+        quantity_on_hand: Is[int] = 0
+
+    @annotated
+    @dataclass
+    class InventoryItemLoose:
+        name: str
+        unit_price: As[float]
+        quantity_on_hand: As[int] = 10
+
+    items = [
+        InventoryItem("widget", 3.0, 10),
+        InventoryItem("widget", 3.0),
+        InventoryItem("widget", "3.0", 10),
+        InventoryItem("widget", 3.0, "10"),
+        InventoryItemLoose("widget", 3.0, 10),
+        InventoryItemLoose("widget", 3.0),
+        InventoryItemLoose("widget", "3.0", 10),
+        InventoryItemLoose("widget", 3.0, "10"),
+    ]
+    for item in items:
+        assert item.name == "widget"
+        assert item.unit_price == 3.0
+        assert item.quantity_on_hand == 10
+
+    with pytest.raises(MatchError):
+        InventoryItem("widget", 3.0, "10.1")
+    with pytest.raises(MatchError):
+        InventoryItem("widget", 3.0, 10.1)
+
+    item = InventoryItemStrict("widget", 3.0, 10)
     assert item.name == "widget"
     assert item.unit_price == 3.0
     assert item.quantity_on_hand == 10
 
-    item = InventoryItem("widget", 3.0)
-    assert item.name == "widget"
-    assert item.unit_price == 3.0
-    assert item.quantity_on_hand == 0
-
     with pytest.raises(MatchError):
-        InventoryItem("widget", "3.0", 10)
-
+        InventoryItemStrict("widget", "3.0", 10)
     with pytest.raises(MatchError):
-        InventoryItem("widget", 3.0, "10")
+        InventoryItemStrict("widget", 3.0, "10")
 
 
 ##################################################
@@ -1563,14 +1588,14 @@ def test_slots_are_inherited_and_overridable():
         arg = argument(Anything())
 
     class StringOp(Op):
-        arg = argument(AsType(str))  # new overridden slot
+        arg = argument(IsType(str))  # new overridden slot
 
     class StringSplit(StringOp):
-        sep = argument(AsType(str))  # new slot
+        sep = argument(IsType(str))  # new slot
 
     class StringJoin(StringOp):
         __slots__ = ("_memoize",)  # new slot
-        sep = argument(AsType(str))  # new overridden slot
+        sep = argument(IsType(str))  # new overridden slot
 
     assert Op.__slots__ == ("_cache", "arg")
     assert StringOp.__slots__ == ("arg",)
@@ -1928,6 +1953,37 @@ def test_annotable_with_optional_coercible_typehint():
 #     snapshot.assert_match(str(exc_info.value), target)
 
 
+def test_abstract_meta():
+    class Foo(metaclass=AbstractMeta):
+        @abstractmethod
+        def foo(self): ...
+
+        @property
+        @abstractmethod
+        def bar(self): ...
+
+    assert not issubclass(type(Foo), ABCMeta)
+    assert issubclass(type(Foo), AbstractMeta)
+    assert Foo.__abstractmethods__ == frozenset({"foo", "bar"})
+
+    with pytest.raises(TypeError, match="Can't instantiate abstract class .*Foo.*"):
+        Foo()
+
+    class Bar(Foo):
+        def foo(self):
+            return 1
+
+        @property
+        def bar(self):
+            return 2
+
+    bar = Bar()
+    assert bar.foo() == 1
+    assert bar.bar == 2
+    assert isinstance(bar, Foo)
+    assert Bar.__abstractmethods__ == frozenset()
+
+
 def test_annotable_supports_abstractmethods():
     class Foo(Annotable):
         @abstractmethod
@@ -1989,7 +2045,7 @@ def test_annotable_with_custom_init():
 
     class MyInit(Annotable):
         a = argument(int)
-        b = argument(AsType(str))
+        b = argument(IsType(str))
         c = optional(float, default=0.0)
 
         def __init__(self, a, b, c):
@@ -2001,10 +2057,11 @@ def test_annotable_with_custom_init():
         def called_with(self):
             return (self.a, self.b, self.c)
 
+    assert MyInit.__spec__.initable is True
     with pytest.raises(MatchError):
         MyInit(1, 2, 3)
 
-    mi = MyInit(1, 2, 3.3)
+    mi = MyInit(1, "2", 3.3)
     assert called_with == (1, "2", 3.3)
     assert isinstance(mi, MyInit)
     assert mi.a == 1
@@ -2035,3 +2092,21 @@ def test_nested():
 
     assert Quux().bar.x == 2
     assert Quux(Bar(3)).bar.x == 3
+
+
+def test_annotable_spec_flags():
+    assert Annotable.__spec__.initable is False
+    assert Annotable.__spec__.immutable is False
+    assert Annotable.__spec__.hashable is False
+
+
+def test_user_model():
+    class User(Annotable):
+        id: int
+        name: str = "Jane Doe"
+        age: int | None = None
+        children: list[str] = []
+
+    assert User.__spec__.initable is False
+    assert User.__spec__.immutable is False
+    assert User.__spec__.hashable is False
