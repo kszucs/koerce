@@ -18,6 +18,7 @@ from koerce._internal import (
     Item,
     Just,
     Map,
+    Builder,
     Seq,
     Unop,
     Var,
@@ -510,3 +511,10 @@ def test_deferred_is_not_truthy(obj):
         TypeError, match="The truth value of Deferred objects is not defined"
     ):
         bool(obj)
+
+
+def test_builder_coercion():
+    assert Builder.__coerce__(Deferred(Var("a"))) == Var("a")
+    assert Builder.__coerce__(Var("a")) == Var("a")
+    with pytest.raises(ValueError):
+        Builder.__coerce__(1)

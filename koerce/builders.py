@@ -152,13 +152,12 @@ class Deferred:
 
 @cython.cclass
 class Builder:
-    # TODO(kszucs): cover with tests
     @staticmethod
-    def __coerce__(value):
+    def __coerce__(value) -> Builder:
         if isinstance(value, Builder):
             return value
         elif isinstance(value, Deferred):
-            return value._builder
+            return cython.cast(Deferred, value)._builder
         else:
             raise ValueError(f"Cannot coerce {type(value).__name__!r} to Builder")
 
