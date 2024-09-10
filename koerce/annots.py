@@ -663,7 +663,6 @@ class AbstractMeta(type):
         return cls
 
 
-# TODO(kszucs): cover immutable inheritance additivity with tests
 class AnnotableMeta(AbstractMeta):
     def __new__(
         metacls,
@@ -701,15 +700,15 @@ class AnnotableMeta(AbstractMeta):
         # create the base classes for the new class
         traits: list[type] = []
         if is_immutable and immutable is False:
-            raise ValueError(
+            raise TypeError(
                 "One of the base classes is immutable so the child class cannot be mutable"
             )
         if is_hashable and hashable is False:
-            raise ValueError(
+            raise TypeError(
                 "One of the base classes is hashable so this child class must be hashable"
             )
         if is_hashable and not is_immutable:
-            raise ValueError("Only immutable classes can be hashable")
+            raise TypeError("Only immutable classes can be hashable")
         if hashable:
             traits.append(Hashable)
         if immutable:
