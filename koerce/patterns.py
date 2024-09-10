@@ -2385,7 +2385,7 @@ def pattern(
     The constructed pattern.
 
     """
-    if obj is Ellipsis:
+    if obj is Ellipsis or obj is Any:
         return _any
     elif isinstance(obj, Pattern):
         return obj

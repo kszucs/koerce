@@ -1434,6 +1434,12 @@ def test_pattern_from_typehint_with_coercion(annot, expected):
     assert Pattern.from_typehint(annot, allow_coercion=True) == expected
 
 
+def test_pattern_from_annotated():
+    p = Pattern.from_typehint(Annotated[Any, ...])
+    assert p == AllOf(Anything(), Anything())
+    assert pattern(Any) == Anything()
+
+
 @pytest.mark.skipif(sys.version_info < (3, 10), reason="requires python3.10 or higher")
 def test_pattern_from_typehint_uniontype():
     # uniontype marks `type1 | type2` annotations and it's different from
