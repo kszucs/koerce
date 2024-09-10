@@ -2100,6 +2100,50 @@ def test_annotable_spec_flags():
     assert Annotable.__spec__.hashable is False
 
 
+def test_annotable_spec_flag_inheritance():
+    class A(Annotable):
+        pass
+
+    class B(Annotable, immutable=True):
+        pass
+
+    assert A.__spec__.initable is False
+    assert A.__spec__.immutable is False
+    assert A.__spec__.hashable is False
+    assert B.__spec__.initable is False
+    assert B.__spec__.immutable is True
+    assert B.__spec__.hashable is False
+
+    class C(A, B):
+        pass
+
+    assert C.__spec__.initable is False
+    assert C.__spec__.immutable is True
+    assert C.__spec__.hashable is False
+
+    class D(B, A, hashable=True):
+        pass
+
+    assert D.__spec__.initable is False
+    assert D.__spec__.immutable is True
+    assert D.__spec__.hashable is True
+
+    with pytest.raises(TypeError):
+
+        class E(A, B, immutable=False):
+            pass
+
+    with pytest.raises(TypeError):
+
+        class F(D, hashable=False):
+            pass
+
+    with pytest.raises(TypeError):
+
+        class G(D, immutable=False):
+            pass
+
+
 def test_user_model():
     class User(Annotable):
         id: int
