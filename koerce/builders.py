@@ -224,7 +224,9 @@ class Just(Builder):
             self.value = value
 
     def __repr__(self):
-        if callable(self.value):
+        if hasattr(self.value, "__deferred_repr__"):
+            return self.value.__deferred_repr__()
+        elif callable(self.value):
             return getattr(self.value, "__name__", repr(self.value))
         else:
             return repr(self.value)
@@ -767,6 +769,6 @@ def deferred(obj, allow_custom=False) -> Deferred:
     return Deferred(builder(obj, allow_custom))
 
 
-def resolve(obj, context):
+def resolve(obj, **context):
     bldr: Builder = builder(obj)
     return bldr.build(context)

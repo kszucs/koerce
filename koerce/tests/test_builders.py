@@ -7,6 +7,7 @@ import pytest
 from koerce._internal import (
     Attr,
     Binop,
+    Builder,
     Call,
     Call0,
     Call1,
@@ -18,11 +19,11 @@ from koerce._internal import (
     Item,
     Just,
     Map,
-    Builder,
     Seq,
     Unop,
     Var,
     builder,
+    resolve,
 )
 
 _ = Deferred(Var("_"))
@@ -349,6 +350,11 @@ def table():
     )
 
 
+def test_custom_deferred_repr(table):
+    expr = _.x + table.a
+    assert repr(expr) == "($_.x + <column[int]>)"
+
+
 def test_deferred_getitem(table):
     expr = _["a"]
     assert resolve(expr, table) == table["a"]
@@ -518,3 +524,8 @@ def test_builder_coercion():
     assert Builder.__coerce__(Var("a")) == Var("a")
     with pytest.raises(ValueError):
         Builder.__coerce__(1)
+
+
+def test_resolve():
+    deferred = _["a"] + 1
+    assert resolve(deferred, _={"a": 1}) == 2

@@ -1357,7 +1357,7 @@ class Custom(Pattern):
 
     """
 
-    func: Callable
+    func = cython.declare(object, visibility="readonly")
 
     def __init__(self, func):
         self.func = func
