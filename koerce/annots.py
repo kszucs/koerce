@@ -723,7 +723,7 @@ class AnnotableMeta(AbstractMeta):
         initable=None,
         hashable=None,
         immutable=None,
-        singleton=False,
+        singleton=None,
         allow_coercion=True,
         **kwargs,
     ):
@@ -747,6 +747,7 @@ class AnnotableMeta(AbstractMeta):
             is_initable |= spec.initable
             is_hashable |= spec.hashable
             is_immutable |= spec.immutable
+            is_singleton |= spec.singleton
             signatures.append(spec.signature)
             attributes.update(spec.attributes)
 
