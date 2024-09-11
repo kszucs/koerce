@@ -6,6 +6,7 @@ import typing
 from collections.abc import Mapping, Sequence
 from types import FunctionType, MethodType
 from typing import Any, ClassVar, Optional
+from weakref import WeakValueDictionary
 
 import cython
 
@@ -541,7 +542,7 @@ def varkwargs(pattern=_any, typehint=EMPTY):
     return Parameter(kind=_VAR_KEYWORD, pattern=pattern, typehint=typehint)
 
 
-__create__ = cython.declare(object, type.__call__)
+__type_call__ = cython.declare(object, type.__call__)
 if cython.compiled:
     from cython.cimports.cpython.object import PyObject_GenericSetAttr as __setattr__
 else:
@@ -555,6 +556,7 @@ class AnnotableSpec:
     initable = cython.declare(cython.bint, visibility="readonly")
     hashable = cython.declare(cython.bint, visibility="readonly")
     immutable = cython.declare(cython.bint, visibility="readonly")
+    singleton = cython.declare(cython.bint, visibility="readonly")
     signature = cython.declare(Signature, visibility="readonly")
     attributes = cython.declare(dict[str, Attribute], visibility="readonly")
     hasattribs = cython.declare(cython.bint, visibility="readonly")
@@ -564,12 +566,14 @@ class AnnotableSpec:
         initable: bool,
         hashable: bool,
         immutable: bool,
+        singleton: bool,
         signature: Signature,
         attributes: dict[str, Attribute],
     ):
         self.initable = initable
         self.hashable = hashable
         self.immutable = immutable
+        self.singleton = singleton
         self.signature = signature
         self.attributes = attributes
         self.hasattribs = bool(attributes)
@@ -577,31 +581,51 @@ class AnnotableSpec:
     @cython.cfunc
     @cython.inline
     def new(self, cls: type, args: tuple[Any, ...], kwargs: dict[str, Any]):
-        ctx: dict[str, Any] = {}
         bound: dict[str, Any]
-        param: Parameter
-
         if not args and len(kwargs) == self.signature.length:
             bound = kwargs
         else:
             bound = self.signature.bind(args, kwargs)
 
-        if self.initable:
-            # slow initialization calling __init__
-            for name, param in self.signature.parameters.items():
-                bound[name] = param.pattern.match(bound[name], ctx)
-            return __create__(cls, **bound)
+        if self.singleton or self.initable:
+            return self.new_slow(cls, bound)
         else:
-            # fast initialization directly setting the arguments
-            this = cls.__new__(cls)
-            for name, param in self.signature.parameters.items():
-                __setattr__(this, name, param.pattern.match(bound[name], ctx))
-            # TODO(kszucs): test order ot precomputes and attributes calculations
-            if self.hashable:
-                self.init_precomputes(this)
-            if self.hasattribs:
-                self.init_attributes(this)
-            return this
+            return self.new_fast(cls, bound)
+
+    @cython.cfunc
+    @cython.inline
+    def new_slow(self, cls: type, bound: dict[str, Any]):
+        # slow initialization calling __init__
+        ctx: dict[str, Any] = {}
+        param: Parameter
+        for name, param in self.signature.parameters.items():
+            bound[name] = param.pattern.match(bound[name], ctx)
+
+        if self.singleton:
+            key = (cls, *bound.items())
+            try:
+                return cls.__instances__[key]
+            except KeyError:
+                this = __type_call__(cls, **bound)
+                cls.__instances__[key] = this
+                return this
+
+        return __type_call__(cls, **bound)
+
+    @cython.cfunc
+    @cython.inline
+    def new_fast(self, cls: type, bound: dict[str, Any]):
+        # fast initialization directly setting the arguments
+        ctx: dict[str, Any] = {}
+        param: Parameter
+        this = cls.__new__(cls)
+        for name, param in self.signature.parameters.items():
+            __setattr__(this, name, param.pattern.match(bound[name], ctx))
+        if self.hashable:
+            self.init_precomputes(this)
+        if self.hasattribs:
+            self.init_attributes(this)
+        return this
 
     @cython.cfunc
     @cython.inline
@@ -627,8 +651,7 @@ class AnnotableSpec:
 class AbstractMeta(type):
     """Base metaclass for many of the ibis core classes.
 
-    Enforce the subclasses to define a `__slots__` attribute and provide a
-    `__create__` classmethod to change the instantiation behavior of the class.
+    Enforce the subclasses to define a `__slots__` attribute.
 
     Support abstract methods without extending `abc.ABCMeta`. While it provides
     a reduced feature set compared to `abc.ABCMeta` (no way to register virtual
@@ -639,8 +662,8 @@ class AbstractMeta(type):
     __slots__ = ()
 
     def __new__(metacls, clsname, bases, dct, **kwargs):
-        # # enforce slot definitions
-        # dct.setdefault("__slots__", ())
+        # enforce slot definitions
+        dct.setdefault("__slots__", ())
 
         # construct the class object
         cls = super().__new__(metacls, clsname, bases, dct, **kwargs)
@@ -663,6 +686,10 @@ class AbstractMeta(type):
         return cls
 
 
+class Abstract(metaclass=AbstractMeta):
+    """Base class for many of the ibis core classes, see `AbstractMeta`."""
+
+
 class AnnotableMeta(AbstractMeta):
     def __new__(
         metacls,
@@ -672,6 +699,7 @@ class AnnotableMeta(AbstractMeta):
         initable=None,
         hashable=None,
         immutable=None,
+        singleton=False,
         allow_coercion=True,
         **kwargs,
     ):
@@ -682,6 +710,7 @@ class AnnotableMeta(AbstractMeta):
         is_initable: cython.bint
         is_hashable: cython.bint = hashable is True
         is_immutable: cython.bint = immutable is True
+        is_singleton: cython.bint = singleton is True
         if initable is None:
             is_initable = "__init__" in dct or "__new__" in dct
         else:
@@ -713,6 +742,8 @@ class AnnotableMeta(AbstractMeta):
             traits.append(Hashable)
         if immutable:
             traits.append(Immutable)
+        if singleton:
+            traits.append(Singleton)
 
         # collect type annotations and convert them to patterns
         slots: list[str] = list(dct.pop("__slots__", []))
@@ -757,6 +788,7 @@ class AnnotableMeta(AbstractMeta):
         spec = AnnotableSpec(
             initable=is_initable,
             hashable=is_hashable,
+            singleton=is_singleton,
             immutable=is_immutable,
             signature=signature,
             attributes=attributes,
@@ -778,9 +810,14 @@ class AnnotableMeta(AbstractMeta):
         return spec.new(cython.cast(type, cls), args, kwargs)
 
 
-class Immutable:
-    __slots__ = ()
+class Singleton(Abstract):
+    """Cache instances of the class based on instantiation arguments."""
 
+    __instances__: Mapping[Any, Self] = WeakValueDictionary()
+    __slots__ = ("__weakref__",)
+
+
+class Immutable(Abstract):
     def __copy__(self):
         return self
 
@@ -794,7 +831,7 @@ class Immutable:
         )
 
 
-class Hashable:
+class Hashable(Abstract):
     __slots__ = ("__args__", "__precomputed_hash__")
 
     def __hash__(self) -> int:
@@ -809,12 +846,10 @@ class Hashable:
         )
 
 
-class Annotable(metaclass=AnnotableMeta, initable=False):
+class Annotable(Abstract, metaclass=AnnotableMeta, initable=False):
     __argnames__: ClassVar[tuple[str, ...]]
     __match_args__: ClassVar[tuple[str, ...]]
     __signature__: ClassVar[Signature]
-
-    __slots__ = ("__weakref__",)
 
     def __init__(self, **kwargs):
         spec: AnnotableSpec = self.__spec__

@@ -204,6 +204,9 @@ def test_msgspec(benchmark):
 
 
 def test_annotated(benchmark):
+    assert KUser.__spec__.initable is False
+    assert KUser.__spec__.singleton is False
+
     r2 = benchmark.pedantic(
         KUser,
         args=(),
