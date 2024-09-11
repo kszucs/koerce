@@ -2209,6 +2209,10 @@ class DataType(Annotable, singleton=True):
     nullable: bool = True
 
 
+class PrimitiveType(DataType):
+    pass
+
+
 def test_singleton_basics():
     one = OneAndOnly()
     only = OneAndOnly()
@@ -2217,6 +2221,15 @@ def test_singleton_basics():
     assert len(OneAndOnly.__instances__) == 1
     key = (OneAndOnly,)
     assert OneAndOnly.__instances__[key] is one
+
+
+def test_singleton_child_is_singleton():
+    prim1 = PrimitiveType()
+    prim2 = PrimitiveType()
+    assert prim1 is prim2
+    assert len(PrimitiveType.__instances__) == 1
+    assert PrimitiveType.__spec__.singleton is True
+    assert PrimitiveType.__instances__ is DataType.__instances__
 
 
 def test_singleton_lifetime() -> None:
