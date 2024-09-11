@@ -28,6 +28,7 @@ from koerce import (
     AnnotableMeta,
     Anything,
     As,
+    Attribute,
     FrozenDictOf,
     Hashable,
     Immutable,
@@ -53,12 +54,14 @@ def test_parameter():
     p = Parameter(Parameter.POSITIONAL_OR_KEYWORD, typehint=int)
     assert p.kind is Parameter.POSITIONAL_OR_KEYWORD
     assert p.format("x") == "x: int"
+    assert hash(p) == hash(p)
 
     p = Parameter(Parameter.POSITIONAL_OR_KEYWORD, default=1)
     assert p.kind is Parameter.POSITIONAL_OR_KEYWORD
     assert p.default_ == 1
     assert p.format("x") == "x=1"
     assert p.pattern == Anything()
+    assert hash(p) == hash(p)
 
     p = Parameter(
         Parameter.POSITIONAL_OR_KEYWORD, typehint=int, default=1, pattern=is_int
@@ -68,18 +71,45 @@ def test_parameter():
     assert p.typehint is int
     assert p.format("x") == "x: int = 1"
     assert p.pattern == is_int
+    assert hash(p) == hash(p)
 
     p = Parameter(Parameter.VAR_POSITIONAL, typehint=int, pattern=is_int)
     assert p.kind is Parameter.VAR_POSITIONAL
     assert p.typehint is int
     assert p.format("y") == "*y: int"
     assert p.pattern == TupleOf(is_int)
+    assert hash(p) == hash(p)
 
     p = Parameter(Parameter.VAR_KEYWORD, typehint=int, pattern=is_int)
     assert p.kind is Parameter.VAR_KEYWORD
     assert p.typehint is int
     assert p.format("z") == "**z: int"
     assert p.pattern == FrozenDictOf(Anything(), is_int)
+    assert hash(p) == hash(p)
+
+    p = Parameter(Parameter.VAR_KEYWORD, typehint=int, pattern=is_int, default={})
+    assert p.kind is Parameter.VAR_KEYWORD
+    assert p.typehint is int
+    assert p.format("z") == "**z: int = {}"
+    assert p.pattern == FrozenDictOf(Anything(), is_int)
+    assert hash(p) == hash(p)
+
+
+def test_attribute():
+    a = Attribute(int, default=1)
+    assert a.pattern == Is(int)
+    assert a.default_ == 1
+    assert hash(a) == hash(a)
+
+    a = Attribute(dict, default={})
+    assert a.pattern == Is(dict)
+    assert a.default_ == {}
+    assert hash(a) == hash(a)
+
+    a = Attribute(dict[str, float], default={"a": 1.0})
+    assert a.pattern == Is(dict[str, float])
+    assert a.default_ == {"a": 1.0}
+    assert hash(a) == hash(a)
 
 
 def test_signature_contruction():
@@ -92,6 +122,7 @@ def test_signature_contruction():
     assert sig.parameters == {"a": a, "b": b, "c": c, "d": d}
     assert sig.return_typehint is EMPTY
     assert sig.return_pattern == Anything()
+    assert hash(sig) == hash(sig)
 
 
 def test_signature_equality_comparison():
@@ -103,9 +134,11 @@ def test_signature_equality_comparison():
     sig1 = Signature({"a": a, "b": b, "c": c})
     sig2 = Signature({"a": a, "b": b, "c": c})
     assert sig1 == sig2
+    assert hash(sig1) == hash(sig2)
 
     sig3 = Signature({"a": a, "c": c, "b": b})
     assert sig1 != sig3
+    assert hash(sig1) != hash(sig3)
 
 
 def test_signature_from_callable():

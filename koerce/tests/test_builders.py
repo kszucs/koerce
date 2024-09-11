@@ -57,18 +57,18 @@ def test_builder_just():
 
     # unwrap subsequently nested Just instances
     assert Just(p) == p
+    assert hash(p) == hash(p)
 
     # disallow creating a Just builder from other builders or deferreds
-    # with pytest.raises(TypeError, match="cannot be used as a Just value"):
-    #     Just(_)
-    # with pytest.raises(TypeError, match="cannot be used as a Just value"):
-    #     Just(Factory(lambda _: _))
+    with pytest.raises(TypeError, match="cannot be used as a Just value"):
+        Just(_)
 
 
 def test_builder_Var():
     p = Var("other")
     context = {"other": 10}
     assert p.apply(context) == 10
+    assert hash(p) == hash(p)
 
 
 def test_builder_func():
@@ -82,6 +82,7 @@ def test_builder_func():
 
     f = Func(fn)
     assert f.apply({"_": 10, "a": 5}) == -1
+    assert hash(f) == hash(f)
 
 
 def test_builder_call():
@@ -93,19 +94,24 @@ def test_builder_call():
 
     c = Call0(Just(fn))
     assert c.apply({}) == ()
+    assert hash(c) == hash(c)
 
     c = Call1(Just(fn), Just(1))
     assert c.apply({}) == (1,)
+    assert hash(c) == hash(c)
 
     c = Call2(Just(fn), Just(1), Just(2))
     assert c.apply({}) == (1, 2)
+    assert hash(c) == hash(c)
 
     c = Call3(Just(fn), Just(1), Just(2), Just(3))
     assert c.apply({}) == (1, 2, 3)
+    assert hash(c) == hash(c)
 
     c = Call(Just(func), Just(1), Just(2), c=Just(3))
     assert isinstance(c, CallN)
     assert c.apply({}) == 6
+    assert hash(c) == hash(c)
 
     c = Call(Just(func), Just(-1), Just(-2))
     assert isinstance(c, Call2)
@@ -127,6 +133,7 @@ def test_builder_call():
 def test_builder_unop():
     b = Unop(operator.neg, Just(1))
     assert b.apply({}) == -1
+    assert hash(b) == hash(b)
 
     b = Unop(operator.abs, Just(-1))
     assert b.apply({}) == 1
@@ -135,6 +142,7 @@ def test_builder_unop():
 def test_builder_binop():
     b = Binop(operator.add, Just(1), Just(2))
     assert b.apply({}) == 3
+    assert hash(b) == hash(b)
 
     b = Binop(operator.mul, Just(2), Just(3))
     assert b.apply({}) == 6
@@ -152,6 +160,7 @@ def test_builder_attr():
     v = Var("v")
     b = Attr(v, "b")
     assert b.apply({"v": MyType(1, 2)}) == 2
+    assert hash(b) == hash(b)
 
     b = Attr(Just(MyType(1, 2)), "a")
     assert b.apply({}) == 1
@@ -165,6 +174,7 @@ def test_builder_item():
     v = Var("v")
     b = Item(v, Just(1))
     assert b.apply({"v": [1, 2, 3]}) == 2
+    assert hash(b) == hash(b)
 
     b = Item(Just(dict(a=1, b=2)), Just("a"))
     assert b.apply({}) == 1
@@ -178,6 +188,7 @@ def test_builder_item():
 def test_builder_seq():
     b = Seq([Just(1), Just(2), Just(3)])
     assert b.apply({}) == [1, 2, 3]
+    assert hash(b) == hash(b)
 
     b = Seq((Just(1), Just(2), Just(3)))
     assert b.apply({}) == (1, 2, 3)
@@ -186,6 +197,7 @@ def test_builder_seq():
 def test_builder_map():
     b = Map({"a": Just(1), "b": Just(2)})
     assert b.apply({}) == {"a": 1, "b": 2}
+    assert hash(b) == hash(b)
 
     b = Map({"a": Just(1), "b": Just(2)})
     assert b.apply({}) == {"a": 1, "b": 2}

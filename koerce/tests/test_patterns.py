@@ -566,9 +566,8 @@ def test_any_of():
     assert p == p1
     assert p.apply(1) == 1
     assert p.apply("foo") == "foo"
-    msg = re.escape(
-        "`1.0` does not match any of [IsType(<class 'int'>), IsType(<class 'str'>)]"
-    )
+    msg = "`1.0` does not match any of [IsType(<class 'int'>), IsType(<class 'str'>)]"
+
     with pytest.raises(MatchError, match=msg):
         p.apply(1.0)
 
@@ -1117,15 +1116,6 @@ def test_replace_in_nested_object_pattern():
     assert h1.b.b == 3
 
 
-# def test_replace_decorator():
-#     @replace(int)
-#     def sub(_):
-#         return _ - 1
-
-#     assert match(sub, 1) == 0
-#     assert match(sub, 2) == 1
-
-
 def test_replace_using_deferred():
     x = Deferred(Var("x"))
     y = Deferred(Var("y"))
@@ -1328,7 +1318,10 @@ def test_pattern_sequence_with_nested_some_of():
     ],
 )
 def test_various_patterns(pattern, value, expected):
-    assert pattern.apply(value, context={}) == expected
+    assert pattern.apply(value) == expected
+    assert hash(pattern) == hash(pattern)
+    assert repr(pattern) == repr(pattern)
+    assert pattern == pattern
 
 
 @pytest.mark.parametrize(
@@ -1432,6 +1425,9 @@ def test_pattern_from_typehint_no_coercion(annot, expected):
 )
 def test_pattern_from_typehint_with_coercion(annot, expected):
     assert Pattern.from_typehint(annot, allow_coercion=True) == expected
+    assert hash(pattern) == hash(pattern)
+    assert repr(pattern) == repr(pattern)
+    assert pattern == pattern
 
 
 def test_pattern_from_annotated():

@@ -24,6 +24,7 @@ from typing_extensions import GenericMeta, Self, get_original_bases
 # TODO(kszucs): would be nice to cimport Signature and Builder
 from .builders import Builder, Deferred, Var, builder
 from .utils import (
+    PseudoHashable,
     RewindableIterator,
     frozendict,
     get_type_args,
@@ -206,7 +207,10 @@ class Pattern:
     def describe(self, value, reason) -> str: ...
 
     def __repr__(self) -> str:
-        return f"{self.__class__.__name__}()"
+        raise NotImplementedError(f"{self.__class__.__name__} is not reprable")
+
+    def __hash__(self) -> int:
+        return self._hash()
 
     def __eq__(self, other) -> bool:
         return type(self) is type(other) and self.equals(other)
@@ -286,6 +290,12 @@ class Pattern:
 @cython.final
 @cython.cclass
 class Anything(Pattern):
+    def __repr__(self) -> str:
+        return f"{self.__class__.__name__}()"
+
+    def _hash(self) -> int:
+        return hash(self.__class__)
+
     def equals(self, other: Anything) -> bool:
         return True
 
@@ -304,6 +314,12 @@ _any = Anything()
 @cython.final
 @cython.cclass
 class Nothing(Pattern):
+    def __repr__(self) -> str:
+        return f"{self.__class__.__name__}()"
+
+    def _hash(self) -> int:
+        return hash(self.__class__)
+
     def equals(self, other: Nothing) -> bool:
         return True
 
@@ -326,6 +342,9 @@ class IdenticalTo(Pattern):
 
     def __repr__(self) -> str:
         return f"{self.__class__.__name__}({self.value!r})"
+
+    def _hash(self) -> int:
+        return hash((self.__class__, self.value))
 
     def equals(self, other: IdenticalTo) -> bool:
         return self.value == other.value
@@ -360,6 +379,9 @@ class EqValue(Pattern):
 
     def __repr__(self) -> str:
         return f"{self.__class__.__name__}({self.value!r})"
+
+    def _hash(self) -> int:
+        return hash((self.__class__, PseudoHashable(self.value)))
 
     def equals(self, other: EqValue) -> bool:
         return self.value == other.value
@@ -396,6 +418,9 @@ class EqDeferred(Pattern):
     def __repr__(self) -> str:
         return f"{self.__class__.__name__}({self.value!r})"
 
+    def _hash(self) -> int:
+        return hash((self.__class__, self.value))
+
     def equals(self, other: EqDeferred) -> bool:
         return self.value == other.value
 
@@ -424,6 +449,9 @@ class TypeOf(Pattern):
 
     def __repr__(self) -> str:
         return f"{self.__class__.__name__}({self.type_!r})"
+
+    def _hash(self) -> int:
+        return hash((self.__class__, self.type_))
 
     def equals(self, other: TypeOf) -> bool:
         return self.type_ == other.type_
@@ -460,6 +488,9 @@ class IsType(Pattern):
 
     def __repr__(self) -> str:
         return f"{self.__class__.__name__}({self.type_!r})"
+
+    def _hash(self) -> int:
+        return hash((self.__class__, self.type_))
 
     def __call__(self, *args, **kwargs):
         return ObjectOf(self.type_, args, kwargs)
@@ -502,6 +533,9 @@ class IsTypeLazy(Pattern):
 
     def __repr__(self) -> str:
         return f"{self.__class__.__name__}({self.qualname!r})"
+
+    def _hash(self) -> int:
+        return hash((self.__class__, self.qualname))
 
     def __call__(self, *args, **kwargs):
         return ObjectOf(self, args, kwargs)
@@ -577,6 +611,9 @@ class IsGeneric1(Pattern):
     def __call__(self, *args, **kwargs):
         return ObjectOf(self, args, kwargs)
 
+    def _hash(self) -> int:
+        return hash((self.__class__, self.origin, self.name1, self.pattern1))
+
     def equals(self, other: IsGeneric1) -> bool:
         return (
             self.origin == other.origin
@@ -624,6 +661,18 @@ class IsGeneric2(Pattern):
     def __call__(self, *args, **kwargs):
         return ObjectOf(self, *args, **kwargs)
 
+    def _hash(self) -> int:
+        return hash(
+            (
+                self.__class__,
+                self.origin,
+                self.name1,
+                self.name2,
+                self.pattern1,
+                self.pattern2,
+            )
+        )
+
     def describe(self, value, reason) -> str:
         return f"{value!r} is not an instance of {self.origin!r}"
 
@@ -670,6 +719,9 @@ class IsGenericN(Pattern):
     def __call__(self, *args, **kwargs):
         return ObjectOf(self, args, kwargs)
 
+    def _hash(self) -> int:
+        return hash((self.__class__, self.origin, PseudoHashable(self.fields)))
+
     def equals(self, other: IsGenericN) -> bool:
         return self.origin == other.origin and self.fields == other.fields
 
@@ -698,6 +750,9 @@ class SubclassOf(Pattern):
     def __repr__(self) -> str:
         return f"{self.__class__.__name__}({self.type_!r})"
 
+    def _hash(self) -> int:
+        return hash((self.__class__, self.type_))
+
     def equals(self, other: SubclassOf) -> bool:
         return self.type_ == other.type_
 
@@ -721,6 +776,12 @@ class As(Generic[T]):
 @cython.final
 @cython.cclass
 class AsBool(Pattern):
+    def __repr__(self) -> str:
+        return f"{self.__class__.__name__}()"
+
+    def _hash(self) -> int:
+        return hash(self.__class__)
+
     def equals(self, other: AsBool) -> bool:
         return True
 
@@ -752,6 +813,12 @@ class AsBool(Pattern):
 @cython.final
 @cython.cclass
 class AsInt(Pattern):
+    def __repr__(self) -> str:
+        return f"{self.__class__.__name__}()"
+
+    def _hash(self) -> int:
+        return hash(self.__class__)
+
     def equals(self, other: AsInt) -> bool:
         return True
 
@@ -819,6 +886,9 @@ class AsType(Pattern):
     def __repr__(self) -> str:
         return f"{self.__class__.__name__}({self.type_!r})"
 
+    def _hash(self) -> int:
+        return hash((self.__class__, self.type_))
+
     def equals(self, other: AsType) -> bool:
         return self.type_ == other.type_ and self.func == other.func
 
@@ -845,6 +915,9 @@ class AsBuiltin(Pattern):
 
     def __repr__(self) -> str:
         return f"{self.__class__.__name__}({self.type_!r})"
+
+    def _hash(self) -> int:
+        return hash((self.__class__, self.type_))
 
     def equals(self, other: AsBuiltin) -> bool:
         return self.type_ == other.type_
@@ -876,6 +949,9 @@ class AsCoercible(Pattern):
 
     def __repr__(self) -> str:
         return f"{self.__class__.__name__}({self.type_!r})"
+
+    def _hash(self) -> int:
+        return hash((self.__class__, self.type_))
 
     def __call__(self, *args, **kwargs):
         return ObjectOf(self, args, kwargs)
@@ -929,6 +1005,9 @@ class AsCoercibleGeneric(Pattern):
     def __repr__(self) -> str:
         return f"{self.__class__.__name__}({self.origin!r}, params={self.params!r})"
 
+    def _hash(self) -> int:
+        return hash((self.__class__, self.origin, PseudoHashable(self.params)))
+
     def __call__(self, *args: Any, **kwds: Any) -> Any:
         return ObjectOf(self, args, kwds)
 
@@ -964,6 +1043,9 @@ class Not(Pattern):
     def __repr__(self) -> str:
         return f"{self.__class__.__name__}({self.inner!r})"
 
+    def _hash(self) -> int:
+        return hash((self.__class__, self.inner))
+
     def equals(self, other: Not) -> bool:
         return self.inner == other.inner
 
@@ -983,13 +1065,16 @@ class Not(Pattern):
 @cython.final
 @cython.cclass
 class AnyOf(Pattern):
-    inners: list[Pattern]
+    inners: tuple[Pattern]
 
     def __init__(self, *inners: Pattern, **options):
-        self.inners = [pattern(inner, **options) for inner in inners]
+        self.inners = tuple(pattern(inner, **options) for inner in inners)
 
     def __repr__(self) -> str:
         return f"{self.__class__.__name__}({self.inners!r})"
+
+    def _hash(self) -> int:
+        return hash((self.__class__, self.inners))
 
     def equals(self, other: AnyOf) -> bool:
         return self.inners == other.inners
@@ -1028,13 +1113,16 @@ class AnyOf(Pattern):
 @cython.final
 @cython.cclass
 class AllOf(Pattern):
-    inners: list[Pattern]
+    inners: tuple[Pattern]
 
     def __init__(self, *inners: Pattern, **options):
-        self.inners = [pattern(inner, **options) for inner in inners]
+        self.inners = tuple(pattern(inner, **options) for inner in inners)
 
     def __repr__(self) -> str:
         return f"{self.__class__.__name__}({self.inners!r})"
+
+    def _hash(self) -> int:
+        return hash((self.__class__, self.inners))
 
     def equals(self, other: AllOf) -> bool:
         return self.inners == other.inners
@@ -1093,6 +1181,9 @@ class Option(Pattern):
     def __repr__(self) -> str:
         return f"{self.__class__.__name__}({self.pattern!r}, default={self.default!r})"
 
+    def _hash(self) -> int:
+        return hash((self.__class__, self.pattern, PseudoHashable(self.default)))
+
     def equals(self, other: Option) -> bool:
         return self.pattern == other.pattern and self.default == other.default
 
@@ -1134,6 +1225,9 @@ class IfFunction(Pattern):
     def __repr__(self) -> str:
         return f"{self.__class__.__name__}({self.predicate!r})"
 
+    def _hash(self) -> int:
+        return hash((self.__class__, self.predicate))
+
     def equals(self, other: IfFunction) -> bool:
         return self.predicate == other.predicate
 
@@ -1167,6 +1261,9 @@ class IfDeferred(Pattern):
 
     def __repr__(self) -> str:
         return f"{self.__class__.__name__}({self.builder!r})"
+
+    def _hash(self) -> int:
+        return hash((self.__class__, self.builder))
 
     def equals(self, other: IfDeferred) -> bool:
         return self.builder == other.builder
@@ -1204,6 +1301,9 @@ class IsIn(Pattern):
 
     def __repr__(self) -> str:
         return f"{self.__class__.__name__}({self.haystack})"
+
+    def _hash(self) -> int:
+        return hash((self.__class__, self.haystack))
 
     def equals(self, other: IsIn) -> bool:
         return self.haystack == other.haystack
@@ -1246,6 +1346,9 @@ class SequenceOf(Pattern):
 
     def __repr__(self) -> str:
         return f"{self.__class__.__name__}({self.item!r}, type_={self.type_!r})"
+
+    def _hash(self) -> int:
+        return hash((self.__class__, self.item, self.type_))
 
     def equals(self, other: SequenceOf) -> bool:
         return self.item == other.item and self.type_ == other.type_
@@ -1313,6 +1416,9 @@ class MappingOf(Pattern):
             f"{self.__class__.__name__}({self.key!r}, {self.value!r}, {self.type_!r})"
         )
 
+    def _hash(self) -> int:
+        return hash((self.__class__, self.key, self.value, self.type_))
+
     def equals(self, other: MappingOf) -> bool:
         return (
             self.key == other.key
@@ -1365,6 +1471,9 @@ class Custom(Pattern):
     def __repr__(self) -> str:
         return f"{self.__class__.__name__}({self.func!r})"
 
+    def _hash(self) -> int:
+        return hash((self.__class__, self.func))
+
     def equals(self, other: Custom) -> bool:
         return self.func == other.func
 
@@ -1406,6 +1515,9 @@ class Capture(Pattern):
     def __repr__(self) -> str:
         return f"{self.__class__.__name__}({self.key!r}, {self.what!r})"
 
+    def _hash(self) -> int:
+        return hash((self.__class__, self.key, self.what))
+
     def equals(self, other: Capture) -> bool:
         return self.key == other.key and self.what == other.what
 
@@ -1439,6 +1551,9 @@ class Replace(Pattern):
 
     def __repr__(self) -> str:
         return f"{self.__class__.__name__}({self.searcher!r}, {self.replacer!r})"
+
+    def _hash(self) -> int:
+        return hash((self.__class__, self.searcher, self.replacer))
 
     @cython.cfunc
     def match(self, value, ctx: Context):
@@ -1503,7 +1618,13 @@ class ObjectOf1(Pattern):
         self.pattern1 = pattern(pattern1, **options)
 
     def __repr__(self) -> str:
-        return f"{self.__class__.__name__}({self.type_!r}, {self.field1!r}={self.pattern1!r})"
+        return (
+            f"{self.__class__.__name__}({self.type_!r}, "
+            f"{self.field1!r}={self.pattern1!r})"
+        )
+
+    def _hash(self) -> int:
+        return hash((self.__class__, self.type_, self.field1, self.pattern1))
 
     def equals(self, other: ObjectOf1) -> bool:
         return (
@@ -1547,7 +1668,23 @@ class ObjectOf2(Pattern):
         self.pattern2 = pattern(pattern2, **options)
 
     def __repr__(self) -> str:
-        return f"ObjectOf2({self.type_!r}, {self.field1!r}={self.pattern1!r}, {self.field2!r}={self.pattern2!r})"
+        return (
+            f"ObjectOf2({self.type_!r}, "
+            f"{self.field1!r}={self.pattern1!r}, "
+            f"{self.field2!r}={self.pattern2!r})"
+        )
+
+    def _hash(self) -> int:
+        return hash(
+            (
+                self.__class__,
+                self.type_,
+                self.field1,
+                self.field2,
+                self.pattern1,
+                self.pattern2,
+            )
+        )
 
     def equals(self, other: ObjectOf2) -> bool:
         return (
@@ -1606,6 +1743,20 @@ class ObjectOf3(Pattern):
             f"{self.field1!r}={self.pattern1!r}, "
             f"{self.field2!r}={self.pattern2!r}, "
             f"{self.field3!r}={self.pattern3!r})"
+        )
+
+    def _hash(self) -> int:
+        return hash(
+            (
+                self.__class__,
+                self.type_,
+                self.field1,
+                self.field2,
+                self.field3,
+                self.pattern1,
+                self.pattern2,
+                self.pattern3,
+            )
         )
 
     def equals(self, other: ObjectOf3) -> bool:
@@ -1676,6 +1827,9 @@ class ObjectOfN(Pattern):
     def __repr__(self) -> str:
         return f"{self.__class__.__name__}({self.type_!r}, {self.fields!r})"
 
+    def _hash(self) -> int:
+        return hash((self.__class__, self.type_, PseudoHashable(self.fields)))
+
     def equals(self, other: ObjectOfN) -> bool:
         return self.type_ == other.type_ and self.fields == other.fields
 
@@ -1705,17 +1859,22 @@ class ObjectOfN(Pattern):
 @cython.cclass
 class ObjectOfX(Pattern):
     type_: Pattern
-    args: list[Pattern]
+    args: tuple[Pattern, ...]
     kwargs: dict[str, Pattern]
 
     def __init__(self, type_, args, kwargs, **options):
         self.type_ = pattern(type_, **options)
-        self.args = [pattern(arg, **options) for arg in args]
+        self.args = tuple(pattern(arg, **options) for arg in args)
         self.kwargs = {k: pattern(v, **options) for k, v in kwargs.items()}
 
     def __repr__(self) -> str:
         return (
             f"{self.__class__.__name__}({self.type_!r}, {self.args!r}, {self.kwargs!r})"
+        )
+
+    def _hash(self) -> int:
+        return hash(
+            (self.__class__, self.type_, self.args, PseudoHashable(self.kwargs))
         )
 
     def equals(self, other: ObjectOfX) -> bool:
@@ -1767,15 +1926,18 @@ class ObjectOfX(Pattern):
 @cython.final
 @cython.cclass
 class CallableWith(Pattern):
-    args: list[Pattern]
+    args: tuple[Pattern, ...]
     return_: Pattern
 
     def __init__(self, args, return_=_any, **options):
-        self.args = [pattern(arg, **options) for arg in args]
+        self.args = tuple(pattern(arg, **options) for arg in args)
         self.return_ = pattern(return_, **options)
 
     def __repr__(self) -> str:
         return f"{self.__class__.__name__}({self.args!r}, return_={self.return_!r})"
+
+    def _hash(self) -> int:
+        return hash((self.__class__, self.args, self.return_))
 
     def equals(self, other: CallableWith) -> bool:
         return self.args == other.args and self.return_ == other.return_
@@ -1871,6 +2033,9 @@ class Length(Pattern):
     def __repr__(self) -> str:
         return f"{self.__class__.__name__}(at_least={self.at_least}, at_most={self.at_most})"
 
+    def _hash(self) -> int:
+        return hash((self.__class__, self.at_least, self.at_most))
+
     def equals(self, other: Length) -> bool:
         return self.at_least == other.at_least and self.at_most == other.at_most
 
@@ -1916,6 +2081,9 @@ class SomeItemsOf(Pattern):
     def __repr__(self) -> str:
         return f"{self.__class__.__name__}({self.pattern!r})"
 
+    def _hash(self) -> int:
+        return hash((self.__class__, self.pattern, self.delimiter, self.length))
+
     def equals(self, other: SomeItemsOf) -> bool:
         return self.pattern == other.pattern
 
@@ -1945,6 +2113,9 @@ class SomeChunksOf(Pattern):
 
     def __repr__(self) -> str:
         return f"{self.__class__.__name__}({self.pattern!r}, {self.delimiter!r})"
+
+    def _hash(self) -> int:
+        return hash((self.__class__, self.pattern, self.delimiter, self.length))
 
     def equals(self, other: SomeChunksOf) -> bool:
         return self.pattern == other.pattern and self.delimiter == other.delimiter
@@ -2004,14 +2175,17 @@ class FixedPatternList(Pattern):
     """
 
     type_: type
-    patterns: list[Pattern]
+    patterns: tuple[Pattern, ...]
 
     def __init__(self, patterns, type_=list, **options):
         self.type_ = type_
-        self.patterns = [pattern(p, **options) for p in patterns]
+        self.patterns = tuple(pattern(p, **options) for p in patterns)
 
     def __repr__(self) -> str:
         return f"{self.__class__.__name__}({self.patterns!r}, type_={self.type_!r})"
+
+    def _hash(self) -> int:
+        return hash((self.__class__, self.type_, self.patterns))
 
     def equals(self, other: FixedPatternList) -> bool:
         return self.patterns == other.patterns and self.type_ == other.type_
@@ -2056,14 +2230,17 @@ class FixedPatternList(Pattern):
 @cython.cclass
 class VariadicPatternList(Pattern):
     type_: type
-    patterns: list[Pattern]
+    patterns: tuple[Pattern, ...]
 
     def __init__(self, patterns, type_=list, **options):
         self.type_ = type_
-        self.patterns = [pattern(p, **options) for p in patterns]
+        self.patterns = tuple(pattern(p, **options) for p in patterns)
 
     def __repr__(self) -> str:
         return f"{self.__class__.__name__}({self.patterns!r}, {self.type_!r})"
+
+    def _hash(self) -> int:
+        return hash((self.__class__, self.type_, self.pattern))
 
     def equals(self, other: VariadicPatternList) -> bool:
         return self.patterns == other.patterns and self.type_ == other.type_
@@ -2089,7 +2266,7 @@ class VariadicPatternList(Pattern):
         current: Pattern
         original: Pattern
         following: Pattern
-        following_patterns = self.patterns[1:] + [Nothing()]
+        following_patterns = self.patterns[1:] + (Nothing(),)
         for current, following in zip(self.patterns, following_patterns):
             original = current
             current = _maybe_unwrap_capture(current)
@@ -2155,6 +2332,9 @@ class PatternMap1(Pattern):
     def __repr__(self) -> str:
         return f"{self.__class__.__name__}({self.field1!r}={self.pattern1!r})"
 
+    def _hash(self) -> int:
+        return hash((self.__class__, self.field1, self.pattern1))
+
     def equals(self, other: PatternMap1) -> bool:
         return self.field1 == other.field1 and self.pattern1 == other.pattern1
 
@@ -2203,6 +2383,11 @@ class PatternMap2(Pattern):
             f"{self.__class__.__name__}("
             f"{self.field1!r}={self.pattern1!r}, "
             f"{self.field2!r}={self.pattern2!r})"
+        )
+
+    def _hash(self) -> int:
+        return hash(
+            (self.__class__, self.field1, self.field2, self.pattern1, self.pattern2)
         )
 
     def equals(self, other: PatternMap2) -> bool:
@@ -2265,6 +2450,19 @@ class PatternMap3(Pattern):
             f"{self.field3!r}={self.pattern3!r})"
         )
 
+    def _hash(self) -> int:
+        return hash(
+            (
+                self.__class__,
+                self.field1,
+                self.field2,
+                self.field3,
+                self.pattern1,
+                self.pattern2,
+                self.pattern3,
+            )
+        )
+
     def equals(self, other: PatternMap3) -> bool:
         return (
             self.field1 == other.field1
@@ -2320,6 +2518,9 @@ class PatternMapN(Pattern):
 
     def __repr__(self) -> str:
         return f"{self.__class__.__name__}({self.fields!r})"
+
+    def _hash(self) -> int:
+        return hash((self.__class__, PseudoHashable(self.fields)))
 
     def equals(self, other: PatternMapN) -> bool:
         return self.fields == other.fields
