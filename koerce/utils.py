@@ -251,3 +251,16 @@ class RewindableIterator:
     def checkpoint(self):
         """Create a checkpoint of the current iterator state."""
         self._iterator, self._checkpoint = itertools.tee(self._iterator)
+
+
+# def format_typehint(typ: Any) -> str:
+#     if isinstance(typ, type):
+#         return typ.__name__
+#     elif isinstance(typ, TypeVar):
+#         if typ.__bound__ is None:
+#             return str(typ)
+#         else:
+#             return format_typehint(typ.__bound__)
+#     else:
+#         # remove the module name from the typehint, including generics
+#         return re.sub(r"(\w+\.)+", "", str(typ))

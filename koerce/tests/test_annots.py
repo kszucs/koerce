@@ -20,8 +20,9 @@ from typing import (
 import pytest
 from typing_extensions import Self
 
-from koerce._internal import (
+from koerce import (
     EMPTY,
+    Abstract,
     AbstractMeta,
     Annotable,
     AnnotableMeta,
@@ -1269,7 +1270,7 @@ def test_annotable_as_immutable():
         lower = optional(is_int, default=0)
         upper = optional(is_int, default=None)
 
-    assert AnnImm.__mro__ == (AnnImm, Immutable, Annotable, object)
+    assert AnnImm.__mro__ == (AnnImm, Immutable, Annotable, Abstract, object)
 
     obj = AnnImm(3, lower=0, upper=4)
     with pytest.raises(AttributeError):
@@ -1851,6 +1852,7 @@ def test_hashable():
         Hashable,
         Immutable,
         Annotable,
+        Abstract,
         object,
     )
 
@@ -1877,10 +1879,6 @@ def test_hashable():
 
     # hashable
     assert {obj: 1}.get(obj) == 1
-
-    # weakrefable
-    ref = weakref.ref(obj)
-    assert ref() == obj
 
     # serializable
     assert pickle.loads(pickle.dumps(obj)) == obj
@@ -1954,7 +1952,7 @@ def test_annotable_with_optional_coercible_typehint():
 
 
 def test_abstract_meta():
-    class Foo(metaclass=AbstractMeta):
+    class Foo(Abstract):
         @abstractmethod
         def foo(self): ...
 
@@ -2154,3 +2152,76 @@ def test_user_model():
     assert User.__spec__.initable is False
     assert User.__spec__.immutable is False
     assert User.__spec__.hashable is False
+
+
+def test_arg_and_hash_precomputed_before_attributes():
+    class Frozen(Annotable, immutable=True, hashable=True):
+        arg: int
+
+        @attribute
+        def a(self):
+            assert self.__args__ == (1,)
+            assert isinstance(self.__precomputed_hash__, int)
+            return "ok"
+
+    assert Frozen(1).a == "ok"
+
+
+class OneAndOnly(Annotable, singleton=True):
+    __instances__ = weakref.WeakValueDictionary()
+
+
+class DataType(Annotable, singleton=True):
+    __instances__ = weakref.WeakValueDictionary()
+    nullable: bool = True
+
+
+def test_singleton_basics():
+    one = OneAndOnly()
+    only = OneAndOnly()
+    assert one is only
+
+    assert len(OneAndOnly.__instances__) == 1
+    key = (OneAndOnly,)
+    assert OneAndOnly.__instances__[key] is one
+
+
+def test_singleton_lifetime() -> None:
+    one = OneAndOnly()
+    assert len(OneAndOnly.__instances__) == 1
+
+    del one
+    assert len(OneAndOnly.__instances__) == 0
+
+
+def test_singleton_with_argument() -> None:
+    dt1 = DataType(nullable=True)
+    dt2 = DataType(nullable=False)
+    dt3 = DataType(nullable=True)
+
+    assert dt1 is dt3
+    assert dt1 is not dt2
+    assert len(DataType.__instances__) == 2
+
+    del dt3
+    assert len(DataType.__instances__) == 2
+    del dt1
+    assert len(DataType.__instances__) == 1
+    del dt2
+    assert len(DataType.__instances__) == 0
+
+
+def test_singleton_looked_after_validation() -> None:
+    class Single(Annotable, singleton=True):
+        value: As[int]
+
+    # arguments looked up after validation
+    obj1 = Single("1")
+    obj2 = Single(2)
+    assert Single("1") is obj1
+    assert Single(1) is obj1
+    assert Single(1.0) is obj1
+    assert Single(2) is obj2
+    assert Single("2") is obj2
+    assert obj2 is not obj1
+    assert Single("3") is Single(3.0)
