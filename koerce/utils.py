@@ -4,7 +4,7 @@ import itertools
 import sys
 import typing
 from collections.abc import Hashable
-from typing import Any, Optional, TypeVar
+from typing import Any, ClassVar, ForwardRef, Optional, TypeVar
 
 from typing_extensions import Self
 
@@ -15,6 +15,7 @@ V = TypeVar("V")
 
 get_type_args = typing.get_args
 get_type_origin = typing.get_origin
+_get_type_hints = typing.get_type_hints
 
 
 class FakeType:
@@ -58,22 +59,26 @@ def get_type_hints(
     if isinstance(obj, dict):
         if module is None:
             raise TypeError("`module` must be provided to evaluate type hints")
+
+        # turn string annotations into ForwardRef objects with the
+        # is_class flag set, so ClassVar annotations won't raise
+        # on Python 3.10
+        obj = {
+            k: ForwardRef(v, is_class=True) if isinstance(v, str) else v
+            for k, v in obj.items()
+        }
         obj = FakeType(module=module, annotations=obj)
         mod = sys.modules.get(module, None)
         globalns = getattr(mod, "__dict__", None)
 
-    try:
-        hints = typing.get_type_hints(
-            obj, globalns=globalns, localns=localns, include_extras=include_extras
-        )
-    except TypeError:
-        return {}
-
+    hints = _get_type_hints(
+        obj, globalns=globalns, localns=localns, include_extras=include_extras
+    )
     if include_properties:
         for name in dir(obj):
             attr = getattr(obj, name)
             if isinstance(attr, property):
-                annots = typing.get_type_hints(
+                annots = _get_type_hints(
                     attr.fget,
                     globalns=globalns,
                     localns=localns,
@@ -85,7 +90,6 @@ def get_type_hints(
     return hints
 
 
-# TODO(kszucs): memoize this function
 def get_type_params(typ: Any) -> dict[TypeVar, type]:
     """Get type parameters for a generic class.
 

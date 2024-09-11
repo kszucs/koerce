@@ -755,7 +755,7 @@ class AnnotableMeta(AbstractMeta):
         else:
             self_qualname = f"{module}.{qualname}"
 
-        # TODO(kszucs): pass dct as localns to evaluate_annotations
+        # TODO(kszucs): pass dct as localns to get_type_hints
         typehints = get_type_hints(annotations, module=module)
         for name, typehint in typehints.items():
             if get_type_origin(typehint) is ClassVar:
