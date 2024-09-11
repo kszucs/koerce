@@ -3,7 +3,7 @@ from __future__ import annotations
 import itertools
 import sys
 import typing
-from collections.abc import Hashable
+from collections.abc import Hashable, Mapping, Sequence, Set
 from typing import Any, ClassVar, ForwardRef, Optional, TypeVar
 
 from typing_extensions import Self
@@ -255,6 +255,40 @@ class RewindableIterator:
     def checkpoint(self):
         """Create a checkpoint of the current iterator state."""
         self._iterator, self._checkpoint = itertools.tee(self._iterator)
+
+
+class PseudoHashable:
+    """A wrapper that provides a best effort precomputed hash."""
+
+    __slots__ = ("obj", "hash")
+
+    def __new__(cls, obj):
+        if isinstance(obj, Hashable):
+            return obj
+        else:
+            return super().__new__(cls)
+
+    def __init__(self, obj):
+        if isinstance(obj, Sequence):
+            hashable_obj = tuple(obj)
+        elif isinstance(obj, Mapping):
+            hashable_obj = tuple(obj.items())
+        elif isinstance(obj, Set):
+            hashable_obj = frozenset(obj)
+        else:
+            hashable_obj = id(obj)
+
+        self.obj = obj
+        self.hash = hash((type(obj), hashable_obj))
+
+    def __hash__(self):
+        return self.hash
+
+    def __eq__(self, other):
+        if isinstance(other, PseudoHashable):
+            return self.obj == other.obj
+        else:
+            return NotImplemented
 
 
 # def format_typehint(typ: Any) -> str:

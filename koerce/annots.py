@@ -19,7 +19,7 @@ from .patterns import (
     _any,
     pattern,
 )
-from .utils import get_type_hints, get_type_origin
+from .utils import PseudoHashable, get_type_hints, get_type_origin
 
 EMPTY = inspect.Parameter.empty
 _ensure_pattern = pattern
@@ -37,6 +37,9 @@ class Attribute:
 
     def __repr__(self):
         return f"<{self.__class__.__name__} pattern={self.pattern!r} default={self.default_!r}>"
+
+    def __hash__(self) -> int:
+        return hash((self.__class__, self.pattern, PseudoHashable(self.default_)))
 
     def __eq__(self, other: Any) -> bool:
         if not isinstance(other, Attribute):
@@ -122,6 +125,17 @@ class Parameter:
             self.kind == right.kind
             and self.default_ == right.default_
             and self.typehint == right.typehint
+        )
+
+    def __hash__(self) -> int:
+        return hash(
+            (
+                self.__class__,
+                self.kind,
+                self.pattern,
+                PseudoHashable(self.default_),
+                self.typehint,
+            )
         )
 
 
@@ -264,6 +278,16 @@ class Signature:
             tuple(self.parameters.items()) == tuple(right.parameters.items())
             and self.return_pattern == right.return_pattern
             and self.return_typehint == right.return_typehint
+        )
+
+    def __hash__(self) -> int:
+        return hash(
+            (
+                self.__class__,
+                PseudoHashable(self.parameters),
+                self.return_pattern,
+                self.return_typehint,
+            )
         )
 
     def __call__(self, /, *args, **kwargs):

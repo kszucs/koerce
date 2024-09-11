@@ -4,9 +4,11 @@ import collections.abc
 import functools
 import inspect
 import operator
-from typing import Any
+from typing import Any, Optional
 
 import cython
+
+from .utils import PseudoHashable
 
 Context = dict[str, Any]
 
@@ -63,9 +65,6 @@ class Deferred:
 
     def __call__(self, *args, **kwargs):
         return Deferred(Call(self, *args, **kwargs))
-
-    # def __contains__(self, item):
-    #     return Deferred(Binop(operator.contains, self, item))
 
     def __invert__(self) -> Deferred:
         return Deferred(Unop(operator.invert, self))
@@ -187,6 +186,12 @@ class Builder:
     def __eq__(self, other: Any) -> bool:
         return type(self) is type(other) and self.equals(other)
 
+    def __hash__(self):
+        return self._hash()
+
+    def __repr__(self):
+        raise NotImplementedError(f"{self.__class__.__name__} is not reprable")
+
 
 def _deferred_repr(obj):
     try:
@@ -223,6 +228,9 @@ class Func(Builder):
     def __repr__(self):
         return _deferred_repr(self.func)
 
+    def _hash(self):
+        return hash((self.__class__, self.func))
+
     def equals(self, other: Func) -> bool:
         return self.func == other.func
 
@@ -247,11 +255,16 @@ class Just(Builder):
     def __init__(self, value: Any):
         if isinstance(value, Just):
             self.value = cython.cast(Just, value).value
+        elif isinstance(value, (Builder, Deferred)):
+            raise TypeError(f"`{value}` cannot be used as a Just value")
         else:
             self.value = value
 
     def __repr__(self):
         return _deferred_repr(self.value)
+
+    def _hash(self):
+        return hash((self.__class__, PseudoHashable(self.value)))
 
     def equals(self, other: Just) -> bool:
         return self.value == other.value
@@ -278,6 +291,9 @@ class Var(Builder):
 
     def __repr__(self):
         return f"${self.name}"
+
+    def _hash(self):
+        return hash((self.__class__, self.name))
 
     def equals(self, other: Var) -> bool:
         return self.name == other.name
@@ -332,6 +348,9 @@ class Call0(Builder):
     def __repr__(self):
         return f"{self.func!r}()"
 
+    def _hash(self):
+        return hash((self.__class__, self.func))
+
     def equals(self, other: Call0) -> bool:
         return self.func == other.func
 
@@ -363,6 +382,9 @@ class Call1(Builder):
 
     def __repr__(self):
         return f"{self.func!r}({self.arg!r})"
+
+    def _hash(self):
+        return hash((self.__class__, self.func, self.arg))
 
     def equals(self, other: Call1) -> bool:
         return self.func == other.func and self.arg == other.arg
@@ -400,6 +422,9 @@ class Call2(Builder):
 
     def __repr__(self):
         return f"{self.func!r}({self.arg1!r}, {self.arg2!r})"
+
+    def _hash(self):
+        return hash((self.__class__, self.func, self.arg1, self.arg2))
 
     def equals(self, other: Call2) -> bool:
         return (
@@ -447,6 +472,9 @@ class Call3(Builder):
     def __repr__(self):
         return f"{self.func!r}({self.arg1!r}, {self.arg2!r}, {self.arg3!r})"
 
+    def _hash(self):
+        return hash((self.__class__, self.func, self.arg1, self.arg2, self.arg3))
+
     def equals(self, other: Call3) -> bool:
         return (
             self.func == other.func
@@ -482,12 +510,12 @@ class CallN(Builder):
     """
 
     func: Builder
-    args: list[Builder]
+    args: tuple[Builder, ...]
     kwargs: dict[str, Builder]
 
     def __init__(self, func, *args, **kwargs):
         self.func = builder(func)
-        self.args = [builder(arg) for arg in args]
+        self.args = tuple(builder(arg) for arg in args)
         self.kwargs = {k: builder(v) for k, v in kwargs.items()}
 
     def __repr__(self):
@@ -501,6 +529,9 @@ class CallN(Builder):
             return f"{self.func!r}({kwargs})"
         else:
             return f"{self.func!r}()"
+
+    def _hash(self):
+        return hash((self.__class__, self.func, self.args, PseudoHashable(self.kwargs)))
 
     def equals(self, other: CallN) -> bool:
         return (
@@ -573,6 +604,9 @@ class Unop(Builder):
         symbol = _operator_symbols[self.op]
         return f"{symbol}{self.arg!r}"
 
+    def _hash(self):
+        return hash((self.__class__, self.op, self.arg))
+
     def equals(self, other: Unop) -> bool:
         return self.op == other.op and self.arg == other.arg
 
@@ -610,6 +644,9 @@ class Binop(Builder):
         symbol = _operator_symbols[self.op]
         return f"({self.arg1!r} {symbol} {self.arg2!r})"
 
+    def _hash(self):
+        return hash((self.__class__, self.op, self.arg1, self.arg2))
+
     def equals(self, other: Binop) -> bool:
         return (
             self.op == other.op and self.arg1 == other.arg1 and self.arg2 == other.arg2
@@ -645,6 +682,9 @@ class Item(Builder):
     def __repr__(self):
         return f"{self.obj!r}[{self.key!r}]"
 
+    def _hash(self):
+        return hash((self.__class__, self.obj, self.key))
+
     def equals(self, other: Item) -> bool:
         return self.obj == other.obj and self.key == other.key
 
@@ -678,6 +718,9 @@ class Attr(Builder):
     def __repr__(self):
         return f"{self.obj!r}.{self.attr}"
 
+    def _hash(self):
+        return hash((self.__class__, self.obj, self.attr))
+
     def equals(self, other: Attr) -> bool:
         return self.obj == other.obj and self.attr == other.attr
 
@@ -699,11 +742,11 @@ class Seq(Builder):
     """
 
     type_: Any
-    items: list[Builder]
+    items: tuple[Builder, ...]
 
     def __init__(self, items):
         self.type_ = type(items)
-        self.items = [builder(item) for item in items]
+        self.items = tuple(builder(item) for item in items)
 
     def __repr__(self):
         elems = ", ".join(map(repr, self.items))
@@ -713,6 +756,9 @@ class Seq(Builder):
             return f"[{elems}]"
         else:
             return f"{self.type_.__name__}({elems})"
+
+    def _hash(self):
+        return hash((self.__class__, self.type_, self.items))
 
     def equals(self, other: Seq) -> bool:
         return self.type_ == other.type_ and self.items == other.items
@@ -750,6 +796,9 @@ class Map(Builder):
             return f"{{{items}}}"
         else:
             return f"{self.type_.__name__}({{{items}}})"
+
+    def _hash(self):
+        return hash((self.__class__, self.type_, PseudoHashable(self.items)))
 
     def equals(self, other: Map) -> bool:
         return self.type_ == other.type_ and self.items == other.items
