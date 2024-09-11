@@ -850,7 +850,7 @@ class AsBuiltin(Pattern):
         return self.type_ == other.type_
 
     def describe(self, value, reason) -> str:
-        return f"`{value!r}` cannot be coerced to builtin type {self.type_!r}"
+        return f"`{value!r}` cannot be coerced to type {self.type_!r}"
 
     @cython.cfunc
     def match(self, value, ctx: Context):

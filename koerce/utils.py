@@ -56,7 +56,8 @@ def get_type_hints(
     Mapping of parameter or attribute name to type hint.
     """
     if isinstance(obj, dict):
-        assert module is not None
+        if module is None:
+            raise TypeError("`module` must be provided to evaluate type hints")
         obj = FakeType(module=module, annotations=obj)
         mod = sys.modules.get(module, None)
         globalns = getattr(mod, "__dict__", None)
