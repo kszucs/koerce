@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import operator
+import pickle
 
 import pytest
 
@@ -23,6 +24,7 @@ from koerce._internal import (
     Unop,
     Var,
     builder,
+    deferrable,
     resolve,
 )
 
@@ -200,6 +202,11 @@ def test_deferred_object_are_not_hashable():
     # since __eq__ is overloaded, Deferred objects are not hashable
     with pytest.raises(TypeError, match="unhashable type"):
         hash(_.a)
+
+
+def test_deferred_set_raises():
+    with pytest.raises(TypeError, match="unhashable type"):
+        {_.a, _.b}  # noqa: B018
 
 
 @pytest.mark.parametrize(
@@ -529,3 +536,83 @@ def test_builder_coercion():
 def test_resolve():
     deferred = _["a"] + 1
     assert resolve(deferred, _={"a": 1}) == 2
+
+
+def test_deferrable(table):
+    @deferrable
+    def f(a, b, c=3):
+        return a + b + c
+
+    assert f(table.a, table.b) == table.a + table.b + 3
+    assert f(table.a, table.b, c=4) == table.a + table.b + 4
+
+    expr = f(_.a, _.b)
+    sol = table.a + table.b + 3
+    res = resolve(expr, _=table)
+    assert res == sol
+    assert repr(expr) == "f($_.a, $_.b)"
+
+    expr = f(1, 2, c=_.a)
+    sol = 3 + table.a
+    res = resolve(expr, _=table)
+    assert res == sol
+    assert repr(expr) == "f(1, 2, c=$_.a)"
+
+    with pytest.raises(TypeError, match="unknown"):
+        f(_.a, _.b, unknown=3)  # invalid calls caught at call time
+
+
+def test_deferrable_repr():
+    @deferrable(repr="<test>")
+    def myfunc(x):
+        return x + 1
+
+    assert repr(myfunc(_.a)) == "<test>"
+
+
+@pytest.mark.parametrize(
+    "case",
+    [
+        pytest.param(lambda: ([1, _], [1, 2]), id="list"),
+        pytest.param(lambda: ((1, _), (1, 2)), id="tuple"),
+        pytest.param(lambda: ({"x": 1, "y": _}, {"x": 1, "y": 2}), id="dict"),
+        pytest.param(
+            lambda: ({"x": 1, "y": [_, 3]}, {"x": 1, "y": [2, 3]}), id="nested"
+        ),
+    ],
+)
+def test_deferrable_nested_args(case):
+    arg, sol = case()
+
+    @deferrable
+    def identity(x):
+        return x
+
+    expr = identity(arg)
+    assert resolve(expr, _=2) == sol
+    assert identity(sol) is sol
+    assert repr(expr) == f"identity({arg!r})"
+
+
+@pytest.mark.parametrize(
+    "func",
+    [
+        pytest.param(lambda _: _, id="root"),
+        pytest.param(lambda _: _.a, id="getattr"),
+        pytest.param(lambda _: _["a"], id="getitem"),
+        pytest.param(lambda _: _.a.log(), id="method"),
+        pytest.param(lambda _: _.a.log(_.b), id="method-with-args"),
+        pytest.param(lambda _: _.a.log(base=_.b), id="method-with-kwargs"),
+        pytest.param(lambda _: _.a + _.b, id="binary-op"),
+        pytest.param(lambda _: ~_.a, id="unary-op"),
+    ],
+)
+def test_deferred_is_pickleable(func, table):
+    expr1 = func(_)
+    builder1 = builder(expr1)
+    builder2 = pickle.loads(pickle.dumps(builder1))
+
+    r1 = resolve(builder1, _=table)
+    r2 = resolve(builder2, _=table)
+
+    assert r1 == r2
