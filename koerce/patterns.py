@@ -803,9 +803,9 @@ class AsBool(Pattern):
                 return True
         if isinstance(value, str):
             lowered = value.lower()
-            if lowered == "true" or lowered == "1":
+            if lowered in ["true", "1"]:
                 return True
-            elif lowered == "false" or lowered == "0":
+            elif lowered in ["false", "0"]:
                 return False
         raise MatchError(self, value)
 
