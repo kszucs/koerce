@@ -996,10 +996,7 @@ class List(Annotable, Generic[T]):
             return NotImplemented
         if len(self) != len(other):
             return False
-        for a, b in zip(self, other):
-            if a != b:
-                return False
-        return True
+        return all(a == b for a, b in zip(self, other))
 
 
 # AnnotableMeta doesn't extend ABCMeta, so we need to register the class
@@ -1048,10 +1045,7 @@ class Map(Annotable, Generic[K, V]):
             return NotImplemented
         if len(self) != len(other):
             return False
-        for key in self:
-            if self[key] != other[key]:
-                return False
-        return True
+        return all(self[key] == other[key] for key in self)
 
     def items(self):
         for key in self:
