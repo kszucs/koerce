@@ -2569,6 +2569,10 @@ def pattern(
     obj
         The object to create a pattern from. Can be a pattern, a type, a callable,
         a mapping, an iterable or a value.
+    allow_coercion
+        Whether to allow type coercion during matching.
+    self_qualname
+        The qualified name of the class that is being constructed.
 
     Examples
     --------
