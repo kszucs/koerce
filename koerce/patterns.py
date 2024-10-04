@@ -803,9 +803,9 @@ class AsBool(Pattern):
                 return True
         if isinstance(value, str):
             lowered = value.lower()
-            if lowered == "true" or lowered == "1":
+            if lowered in ["true", "1"]:
                 return True
-            elif lowered == "false" or lowered == "0":
+            elif lowered in ["false", "0"]:
                 return False
         raise MatchError(self, value)
 
@@ -2569,6 +2569,10 @@ def pattern(
     obj
         The object to create a pattern from. Can be a pattern, a type, a callable,
         a mapping, an iterable or a value.
+    allow_coercion
+        Whether to allow type coercion during matching.
+    self_qualname
+        The qualified name of the class that is being constructed.
 
     Examples
     --------

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import sys
 
-from ._internal import *
+from ._internal import *  # noqa: F403
 
 
 class _Variable(Deferred):
@@ -84,6 +84,8 @@ def koerce(
         The value to match.
     context
         Arbitrary mapping of values to be used while matching.
+    allow_coercion
+        Whether to allow coercion of values to match the pattern.
 
     Returns
     -------

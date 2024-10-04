@@ -740,7 +740,7 @@ class AnnotableMeta(AbstractMeta):
         else:
             is_initable = initable
         for parent in bases:
-            try:  # noqa: SIM105
+            try:
                 spec = parent.__spec__
             except AttributeError:
                 continue

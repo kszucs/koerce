@@ -4,7 +4,7 @@ import itertools
 import sys
 import typing
 from collections.abc import Hashable, Mapping, Sequence, Set
-from typing import Any, ClassVar, ForwardRef, Optional, TypeVar
+from typing import Any, ForwardRef, Optional, TypeVar
 
 from typing_extensions import Self
 

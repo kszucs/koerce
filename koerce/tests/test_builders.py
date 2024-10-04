@@ -25,7 +25,6 @@ from koerce._internal import (
     Var,
     builder,
     deferrable,
-    resolve,
 )
 
 _ = Deferred(Var("_"))
