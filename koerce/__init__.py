@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import sys
 
-from ._internal import *
+from ._internal import *  # noqa: F403
 
 
 class _Variable(Deferred):
