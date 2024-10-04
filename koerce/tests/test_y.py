@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from inspect import Signature as InspectSignature
-from typing import Generic
+from typing import ClassVar, Generic
 
 import pytest
 
@@ -161,21 +161,21 @@ class PUser(BaseModel):
     id: int
     name: str = "Jane Doe"
     age: int | None = None
-    children: list[str] = []
+    children: ClassVar[list[str]] = []
 
 
 class KUser(Annotable):
     id: int
     name: str = "Jane Doe"
     age: int | None = None
-    children: list[str] = []
+    children: ClassVar[list[str]] = []
 
 
 class MUser(msgspec.Struct):
     id: int
     name: str = "Jane Doe"
     age: int | None = None
-    children: list[str] = []
+    children: ClassVar[list[str]] = []
 
 
 data = {"id": 1, "name": "Jane Doe", "age": None, "children": []}

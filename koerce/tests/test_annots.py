@@ -9,6 +9,7 @@ from typing import (
     Annotated,
     Any,
     Callable,
+    ClassVar,
     Generic,
     Mapping,
     Optional,
@@ -2174,7 +2175,7 @@ def test_user_model():
         id: int
         name: str = "Jane Doe"
         age: int | None = None
-        children: list[str] = []
+        children: ClassVar[list[str]] = []
 
     assert User.__spec__.initable is False
     assert User.__spec__.immutable is False
