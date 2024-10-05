@@ -838,7 +838,7 @@ class AnnotableMeta(AbstractMeta):
 class Singleton(Abstract):
     """Cache instances of the class based on instantiation arguments."""
 
-    __instances__: Mapping[Any, Self] = WeakValueDictionary()
+    __instances__: Mapping[Any, typing.Self] = WeakValueDictionary()
     __slots__ = ("__weakref__",)
 
 
