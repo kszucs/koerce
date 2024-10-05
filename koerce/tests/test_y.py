@@ -5,13 +5,6 @@ from inspect import Signature as InspectSignature
 from typing import ClassVar, Generic
 
 import pytest
-
-pydantic = pytest.importorskip("pydantic")
-msgspec = pytest.importorskip("msgspec")
-
-# from ibis.common.grounds import Annotable as IAnnotable
-from pydantic import BaseModel, validate_call
-from pydantic_core import SchemaValidator
 from typing_extensions import TypeVar
 
 from koerce import (
@@ -20,6 +13,11 @@ from koerce import (
     Signature,
     annotated,
 )
+
+msgspec = pytest.importorskip("msgspec")
+pydantic = pytest.importorskip("pydantic")
+from pydantic import BaseModel, validate_call  # noqa: E402
+from pydantic_core import SchemaValidator  # noqa: E402
 
 T = TypeVar("T")
 S = TypeVar("S")
