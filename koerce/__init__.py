@@ -5,13 +5,13 @@ import sys
 from ._internal import *  # noqa: F403
 
 
-class _Variable(Deferred):
+class _Variable(Deferred):  #noqa: F405
     def __init__(self, name: str):
-        builder = Var(name)
+        builder = Var(name)  # noqa: F405
         super().__init__(builder)
 
     def __pos__(self):
-        return Capture(self)
+        return Capture(self)  # noqa: F405
 
     def __neg__(self):
         return self
@@ -50,8 +50,8 @@ def var(name):
 
 
 def namespace(module):
-    p = _Namespace(pattern, module)
-    d = _Namespace(deferred, module)
+    p = _Namespace(pattern, module)  # noqa: F405
+    d = _Namespace(deferred, module)  # noqa: F405
     return p, d
 
 
@@ -59,7 +59,7 @@ def replace(matcher):
     """More convenient syntax for replacing a value with the output of a function."""
 
     def decorator(replacer):
-        return Replace(matcher, replacer)
+        return Replace(matcher, replacer)  # noqa: F405
 
     return decorator
 
@@ -72,8 +72,8 @@ class NoMatch:
 
 
 def koerce(
-    pat: Pattern, value: Any, context: Context = None, allow_coercion: bool = False
-) -> Any:
+    pat: Pattern, value: Any, context: Context = None, allow_coercion: bool = False  # noqa: F405
+) -> Any:  # noqa: F405
     """Match a value against a pattern.
 
     Parameters
@@ -106,10 +106,10 @@ def koerce(
     ... ]
 
     """
-    pat = pattern(pat, allow_coercion=allow_coercion)
+    pat = pattern(pat, allow_coercion=allow_coercion) # noqa: F405
     try:
         return pat.apply(value, context)
-    except MatchError:
+    except MatchError: # noqa: F405
         return NoMatch
 
 
